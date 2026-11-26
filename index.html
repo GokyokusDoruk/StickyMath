@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#3b332d">
+  <meta name="description" content="Sticky Math: sayılar saldırıyor, onları sıfıra indir! Tarayıcıda oynanan matematik aksiyon oyunu.">
+  <title>Sticky Math</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Gochi+Hand&family=Permanent+Marker&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="wrap" data-mode="menu">
+    <canvas id="game"></canvas>
+
+    <div id="hudBtns">
+      <button id="btnPause" aria-label="Duraklat">II</button>
+      <button id="btnMute" aria-label="Ses aç/kapat">♪</button>
+    </div>
+
+    <div id="menu" class="overlay show">
+      <h1>Sticky<br>Math</h1>
+      <p class="tag">Sayılar saldırıyor. Onları <b>sıfıra</b> indir!</p>
+      <ul class="howto">
+        <li><b>Tıkla / dokun</b> → seçili işlemi fırlat</li>
+        <li><b>1–5</b> ya da kartlara dokun → işlem seç</li>
+        <li>Sayı <b>0</b> olunca silinir</li>
+        <li>Zıt sayıları çarpıştır: <b>7</b> ve <b>−7</b> → 0</li>
+        <li>Tam kök, tam bölme = <b>kombo</b></li>
+      </ul>
+      <button class="big" id="btnStart">Oyna</button>
+      <p class="best">En iyi: <span id="bestMenu">0</span> RP</p>
+    </div>
+
+    <div id="pause" class="overlay">
+      <h2>Mola</h2>
+      <button class="big" id="btnResume">Devam</button>
+      <button id="btnQuit">Ana menü</button>
+    </div>
+
+    <div id="over" class="overlay">
+      <h2>Defter doldu!</h2>
+      <p class="sub">Sayfa <span id="ovWave">1</span></p>
+      <p class="score"><span id="ovRp">0</span> RP</p>
+      <p class="sub" id="ovBest"></p>
+      <button class="big" id="btnRetry">Tekrar</button>
+      <button id="btnMenu">Ana menü</button>
+    </div>
+  </div>
+  <script src="game.js"></script>
+</body>
+</html>

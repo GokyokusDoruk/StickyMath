@@ -1,0 +1,121 @@
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  height: 100%;
+  background: #3b332d;
+  overflow: hidden;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: "Gochi Hand", "Comic Sans MS", cursive;
+  color: #1f1d1b;
+}
+
+#wrap {
+  --s: 1;
+  position: relative;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, .45);
+}
+
+canvas {
+  display: block;
+  cursor: crosshair;
+  touch-action: none;
+}
+
+#hudBtns {
+  position: absolute;
+  top: calc(var(--s) * 14px);
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: calc(var(--s) * 10px);
+}
+#wrap:not([data-mode="play"]) #hudBtns { display: none; }
+
+#hudBtns button {
+  width: calc(var(--s) * 44px);
+  height: calc(var(--s) * 44px);
+  font-size: calc(var(--s) * 20px);
+  line-height: 1;
+}
+#hudBtns button.off { opacity: .4; text-decoration: line-through; }
+
+.overlay {
+  position: absolute;
+  inset: 0;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: calc(var(--s) * 14px);
+  padding: calc(var(--s) * 40px);
+  background: rgba(243, 239, 230, .94);
+  text-align: center;
+}
+.overlay.show { display: flex; animation: pop .25s ease-out; }
+
+@keyframes pop {
+  from { opacity: 0; transform: scale(1.04); }
+  to { opacity: 1; transform: none; }
+}
+
+h1 {
+  font-family: "Permanent Marker", cursive;
+  font-weight: 400;
+  font-size: calc(var(--s) * 92px);
+  line-height: .95;
+  transform: rotate(-4deg);
+  margin-bottom: calc(var(--s) * 6px);
+}
+h2 {
+  font-family: "Permanent Marker", cursive;
+  font-weight: 400;
+  font-size: calc(var(--s) * 60px);
+  transform: rotate(-3deg);
+}
+
+.tag { font-size: calc(var(--s) * 30px); }
+.sub { font-size: calc(var(--s) * 28px); }
+.best { font-size: calc(var(--s) * 24px); opacity: .7; }
+.score {
+  font-family: "Permanent Marker", cursive;
+  font-size: calc(var(--s) * 64px);
+  color: #d6249f;
+}
+
+.howto {
+  list-style: none;
+  font-size: calc(var(--s) * 25px);
+  line-height: 1.35;
+  background: #fbf8f1;
+  border: 2px dashed rgba(31, 29, 27, .35);
+  padding: calc(var(--s) * 14px) calc(var(--s) * 22px);
+  transform: rotate(1deg);
+}
+
+button {
+  font-family: inherit;
+  font-size: calc(var(--s) * 26px);
+  color: inherit;
+  background: #fbf8f1;
+  border: 3px solid #1f1d1b;
+  border-radius: 255px 15px 225px 15px / 15px 225px 15px 255px;
+  padding: calc(var(--s) * 4px) calc(var(--s) * 26px);
+  cursor: pointer;
+  transition: transform .12s;
+}
+button:hover { transform: rotate(-2deg) scale(1.05); }
+button:active { transform: scale(.96); }
+button.big {
+  font-size: calc(var(--s) * 44px);
+  padding: calc(var(--s) * 6px) calc(var(--s) * 54px);
+  background: #ffe066;
+}
