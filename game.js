@@ -577,11 +577,14 @@
     }
   }
 
-  function drawPlayer(boil) {
+  function drawPlayer(boil) { drawStick(PX, PY, S.aim, S.recoil, S.hurt, boil); }
+
+  // Çöp adam: (bx, by) gövde merkezi; aim = kalemin yönü; recoil/hurt 0..1.
+  function drawStick(bx, by, aim, recoil, hurtT, boil) {
     const bob = Math.sin(clock * 3) * 2;
-    const rec = S.recoil * 7;
-    const x = PX + Math.cos(S.aim) * -rec * 0.4, y = PY + bob;
-    const hurt = S.hurt > 0 && Math.floor(clock * 20) % 2 === 0;
+    const rec = recoil * 7;
+    const x = bx + Math.cos(aim) * -rec * 0.4, y = by + bob;
+    const hurt = hurtT > 0 && Math.floor(clock * 20) % 2 === 0;
     ctx.save();
     ctx.lineCap = 'round'; ctx.lineJoin = 'round';
     ctx.strokeStyle = hurt ? RED : INK; ctx.lineWidth = 4;
@@ -593,19 +596,19 @@
     };
     // gölge
     ctx.fillStyle = 'rgba(0,0,0,0.08)';
-    ctx.beginPath(); ctx.ellipse(x + 2, PY + 52, 30, 7, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(x + 2, by + 52, 30, 7, 0, 0, Math.PI * 2); ctx.fill();
     // bacaklar, gövde, arka kol
-    L(x + 2, y + 8, x - 14, PY + 50, 21);
-    L(x + 2, y + 8, x + 18, PY + 50, 31);
+    L(x + 2, y + 8, x - 14, by + 50, 21);
+    L(x + 2, y + 8, x + 18, by + 50, 31);
     L(x, y - 48, x + 2, y + 8, 11);
     L(x, y - 34, x + 20, y - 8, 41);
     // kafa
     const hx = x, hy = y - 66;
     ctx.fillStyle = PAPER;
     ctx.beginPath(); ctx.ellipse(hx + noise(boil) * 0.6, hy, 18, 17, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-    const ex = Math.cos(S.aim) * 4, ey = Math.sin(S.aim) * 3;
+    const ex = Math.cos(aim) * 4, ey = Math.sin(aim) * 3;
     ctx.lineWidth = 3;
-    if (S.hurt > 0.5) {
+    if (hurtT > 0.5) {
       for (const o of [-7, 4]) { L(hx + o - 3 + ex, hy - 5 + ey, hx + o + 3 + ex, hy + 1 + ey, 61); L(hx + o + 3 + ex, hy - 5 + ey, hx + o - 3 + ex, hy + 1 + ey, 63); }
     } else {
       ctx.fillStyle = INK;
@@ -615,7 +618,7 @@
     }
     // nişan kolu + kırmızı kalem
     ctx.lineWidth = 4;
-    const a = S.aim, ca = Math.cos(a), sa = Math.sin(a);
+    const a = aim, ca = Math.cos(a), sa = Math.sin(a);
     const sx = x - 2, sy = y - 36;
     const reach = 30 - rec;
     const hx2 = sx + ca * reach, hy2 = sy + sa * reach;
@@ -833,19 +836,293 @@
     }
   }
 
+  // ---------- açılış animasyonu ----------
+  // 3 kısa "oyun videosu" film karesi içinde döner, sonra çöp adam
+  // "DORUKPLAYS SUNAR" yazısını harfleri kalemle fırlatarak yazar.
+  const CLIP_LEN = 2.5, CLIPS = 3, LOGO_AT = CLIP_LEN * CLIPS;
+  const CLIP_CAPTIONS = ['Sayıları sıfıra indir!', 'Zıtları çarpıştır!', 'Kombo zinciri kur!'];
+  const LOGO_LINES = [
+    { text: 'DORUKPLAYS', y: 330, size: 64, color: INK },
+    { text: 'SUNAR', y: 425, size: 58, color: RED },
+  ];
+  const LOGO_SHOT = 0.26, LOGO_GAP = 0.12, LOGO_FIRST = 0.4;
+  const LOGO_DONE = LOGO_FIRST + (LOGO_LINES[0].text.length + LOGO_LINES[1].text.length - 1) * LOGO_GAP + LOGO_SHOT;
+  const INTRO_LEN = LOGO_AT + LOGO_DONE + 2.0;
+  const lerp = (a, b, k) => a + (b - a) * k;
+  let introT = 0, logoLetters = null;
+
+  function startIntro() { introT = 0; setMode('intro'); showOverlay(null); }
+  function endIntro() { if (S.mode === 'intro') toMenu(); }
+
+  function vShot(x0, y0, x1, y1, tf, dur, t, label, size = 24) {
+    if (t < tf || t > tf + dur) return;
+    const k = (t - tf) / dur, kb = Math.max(0, k - 0.35);
+    const x = lerp(x0, x1, k), y = lerp(y0, y1, k);
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = 'rgba(212,58,47,0.3)'; ctx.lineWidth = 8;
+    ctx.beginPath(); ctx.moveTo(lerp(x0, x1, kb), lerp(y0, y1, kb)); ctx.lineTo(x, y); ctx.stroke();
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.font = `${size}px ${NUM_FONT}`;
+    ctx.lineWidth = 4; ctx.strokeStyle = PAPER; ctx.strokeText(label, x, y);
+    ctx.fillStyle = RED; ctx.fillText(label, x, y);
+  }
+
+  function vBurst(x, y, age, color, seed) {
+    if (age < 0 || age > 0.6) return;
+    const k = age / 0.6;
+    ctx.globalAlpha = 1 - k;
+    ctx.strokeStyle = color; ctx.lineCap = 'round'; ctx.lineWidth = 3;
+    for (let j = 0; j < 12; j++) {
+      const a = j / 12 * Math.PI * 2 + noise(seed + j) * 0.3, r0 = 14 + k * 46, r1 = r0 + 10 + noise(seed + j + 40) * 4;
+      ctx.beginPath(); ctx.moveTo(x + Math.cos(a) * r0, y + Math.sin(a) * r0); ctx.lineTo(x + Math.cos(a) * r1, y + Math.sin(a) * r1); ctx.stroke();
+    }
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(x, y, 16 + k * 52, 0, Math.PI * 2); ctx.stroke();
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.font = `${46 * (1 + k)}px ${NUM_FONT}`; ctx.fillStyle = color; ctx.fillText('0', x, y);
+    ctx.globalAlpha = 1;
+  }
+
+  function vPop(x, y, text, color, size, age) {
+    if (age < 0 || age > 1.0) return;
+    const a = age < 0.75 ? 1 : 1 - (age - 0.75) / 0.25;
+    const s = age < 0.12 ? easeOutBack(age / 0.12) : 1;
+    ctx.save();
+    ctx.globalAlpha = a;
+    ctx.translate(x, y - age * 20); ctx.rotate(-0.06); ctx.scale(s, s);
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round';
+    ctx.font = `${size}px ${NUM_FONT}`;
+    ctx.lineWidth = 6; ctx.strokeStyle = PAPER; ctx.strokeText(text, 0, 0);
+    ctx.fillStyle = color; ctx.fillText(text, 0, 0);
+    ctx.restore();
+  }
+
+  function vNum(v, x, y, popAge, seed) {
+    const pop = popAge >= 0 && popAge < 0.25 ? 1 - popAge / 0.25 : 0;
+    ctx.save();
+    ctx.translate(x, y); ctx.scale(1 + pop * 0.45, 1 + pop * 0.45);
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    drawText(fmt(v), 0, 0, 46, pop > 0.5 ? RED : (v < 0 ? NEG_INK : INK), NUM_FONT, seed);
+    ctx.restore();
+  }
+
+  // Videolardaki küçük çöp adam (0.75 ölçek). Kalemin ucunu döndürür.
+  function vStick(x, y, aim, rec, boil) {
+    ctx.save(); ctx.translate(x, y); ctx.scale(0.75, 0.75);
+    drawStick(0, 0, aim, rec, 0, boil);
+    ctx.restore();
+    return { x: x - 1.5 + Math.cos(aim) * 40, y: y - 27 + Math.sin(aim) * 40 };
+  }
+  const recoilAt = (fires, t) => { let r = 0; for (const f of fires) if (t >= f && t < f + 0.12) r = 1 - (t - f) / 0.12; return r; };
+
+  function vPaper(w, h) {
+    ctx.fillStyle = PAPER; ctx.fillRect(0, 0, w, h);
+    ctx.strokeStyle = 'rgba(110,150,205,0.35)'; ctx.lineWidth = 1;
+    for (let y = 22; y < h; y += 26) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke(); }
+    ctx.strokeStyle = 'rgba(220,90,90,0.45)';
+    ctx.beginPath(); ctx.moveTo(30, 0); ctx.lineTo(30, h); ctx.stroke();
+  }
+
+  function vClipZero(t, boil) {
+    const nx = 95, ny = 115, fires = [0.45, 0.85, 1.25], dur = 0.3;
+    let hits = 0, last = -9;
+    for (const f of fires) if (t >= f + dur) { hits++; last = f + dur; }
+    const v = 3 - hits;
+    const aim = Math.atan2(ny - 148, nx - 328);
+    const hand = vStick(330, 175, aim, recoilAt(fires, t), boil);
+    if (v > 0) vNum(v, nx, ny + Math.sin(t * 2) * 4, t - last, boil);
+    else vBurst(nx, ny, t - last, INK, 7);
+    for (const f of fires) vShot(hand.x, hand.y, nx, ny, f, dur, t, MINUS + '1');
+    if (v === 0) vPop(nx + 90, ny - 50, 'SIFIR!', '#2a6fdb', 34, t - last);
+  }
+
+  function vClipMerge(t, boil) {
+    const meet = 1.15, k = clamp(t / meet, 0, 1), e = k * k, y = 135 + Math.sin(t * 3) * 3;
+    const hop = t > meet ? Math.abs(Math.sin((t - meet) * 9)) * 12 : 0;
+    vStick(355, 215 - hop, t > meet ? -1.2 : -2.6, 0, boil);
+    if (t < meet) {
+      const ax = lerp(70, 160, e), bx = lerp(270, 230, e);
+      ctx.setLineDash([5, 7]); ctx.strokeStyle = 'rgba(224,64,122,0.55)'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(ax + 30, y); ctx.lineTo(bx - 38, y); ctx.stroke();
+      ctx.setLineDash([]);
+      vNum(70, ax, y, -1, boil);
+      vNum(-70, bx, y + 4, -1, boil + 3);
+    } else {
+      vBurst(195, y, t - meet, '#e0407a', 11);
+      vPop(185, 58, 'SIFIRA BİRLEŞTİ!', '#e0407a', 28, t - meet);
+    }
+  }
+
+  function vClipCombo(t, boil) {
+    const nx = 95, ny = 115, dur = 0.28;
+    const seq = [
+      { f: 0.2, label: '√', v: 4, tag: ['TAM KÖK!', '#7a4bd8'] },
+      { f: 0.65, label: '÷2', v: 2, tag: ['TAM BÖLME!', '#0f9b9b'] },
+      { f: 1.05, label: MINUS + '1', v: 1 },
+      { f: 1.35, label: MINUS + '1', v: 0, tag: ['KOMBO x4!', '#d6249f'] },
+    ];
+    let v = 16, last = -9, tag = null, tagAt = -9;
+    for (const s of seq) if (t >= s.f + dur) { v = s.v; last = s.f + dur; if (s.tag) { tag = s.tag; tagAt = last; } }
+    const aim = Math.atan2(ny - 148, nx - 328);
+    const hand = vStick(330, 175, aim, recoilAt(seq.map(s => s.f), t), boil);
+    if (v !== 0) vNum(v, nx, ny, t - last, boil);
+    else vBurst(nx, ny, t - last, '#d6249f', 23);
+    for (const s of seq) vShot(hand.x, hand.y, nx, ny, s.f, dur, t, s.label);
+    if (tag) vPop(nx + 110, ny - 55, tag[0], tag[1], 30, t - tagAt);
+  }
+
+  const CLIP_FNS = [vClipZero, vClipMerge, vClipCombo];
+
+  function drawClip(i, lt, boil) {
+    const FW = 460, FH = 360, VW = 400, VH = 260, VY = -VH / 2 - 14;
+    const inT = clamp(lt / 0.4, 0, 1), outT = clamp((lt - (CLIP_LEN - 0.3)) / 0.3, 0, 1);
+    const tilt = [-0.05, 0.045, -0.035][i];
+    const ein = easeOutBack(inT);
+    let x = lerp(W + 330, W / 2, ein), rot = lerp(0.5, tilt, ein), sc = 1;
+    if (outT > 0) { const eo = outT * outT; x = lerp(W / 2, -360, eo); rot = lerp(tilt, -0.7, eo); sc = lerp(1, 0.8, eo); }
+    ctx.save();
+    ctx.translate(x, 500); ctx.rotate(rot); ctx.scale(sc, sc);
+    ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fillRect(-FW / 2 + 10, -FH / 2 + 14, FW, FH);
+    ctx.fillStyle = '#16130f'; ctx.fillRect(-FW / 2, -FH / 2, FW, FH);
+    ctx.fillStyle = '#e9e2d2';
+    for (let k = 0; k < 11; k++) {
+      const hx = -FW / 2 + 14 + k * 41;
+      ctx.fillRect(hx, -FH / 2 + 8, 18, 12);
+      ctx.fillRect(hx, FH / 2 - 20, 18, 12);
+    }
+    ctx.save();
+    ctx.beginPath(); ctx.rect(-VW / 2, VY, VW, VH); ctx.clip();
+    ctx.translate(-VW / 2, VY);
+    vPaper(VW, VH);
+    CLIP_FNS[i](lt, boil);
+    ctx.restore();
+    if (Math.floor(lt * 2.5) % 2 === 0) {
+      ctx.fillStyle = '#e23b3b';
+      ctx.beginPath(); ctx.arc(-VW / 2 + 18, VY + 18, 6, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    ctx.font = `18px ${UI_FONT}`; ctx.fillStyle = 'rgba(31,29,27,0.7)';
+    ctx.fillText(`OYUN · ${i + 1}/3`, -VW / 2 + 30, VY + 19);
+    ctx.textAlign = 'center';
+    ctx.font = `30px ${UI_FONT}`; ctx.fillStyle = '#ffe066';
+    ctx.fillText(CLIP_CAPTIONS[i], 0, VY + VH + 22);
+    ctx.restore();
+  }
+
+  function layoutLogo() {
+    logoLetters = [];
+    let i = 0;
+    for (const line of LOGO_LINES) {
+      ctx.font = `${line.size}px ${NUM_FONT}`;
+      const chars = [...line.text];
+      const widths = chars.map(c => ctx.measureText(c).width + 3);
+      let x = W / 2 - widths.reduce((a, b) => a + b, 0) / 2;
+      chars.forEach((ch, k) => {
+        logoLetters.push({ ch, x: x + widths[k] / 2, y: line.y, size: line.size, color: line.color, fire: LOGO_FIRST + i * LOGO_GAP, line: line === LOGO_LINES[0] ? 0 : 1 });
+        x += widths[k]; i++;
+      });
+    }
+  }
+
+  function drawLogo(t, boil) {
+    if (!logoLetters) layoutLogo();
+    const sx0 = PX - 2, sy0 = PY - 36;
+    const next = logoLetters.find(L => t < L.fire + LOGO_SHOT * 0.6) || logoLetters[logoLetters.length - 1];
+    const party = t > LOGO_DONE + 0.1;
+    const aim = party ? -1.25 : Math.atan2(next.y - sy0, next.x - sx0);
+    const rec = recoilAt(logoLetters.map(L => L.fire), t);
+    // fosforlu kalem çizgisi
+    if (party) {
+      const line0 = logoLetters.filter(L => L.line === 0);
+      const x0 = line0[0].x - 34, x1 = line0[line0.length - 1].x + 34;
+      const k = clamp((t - LOGO_DONE - 0.1) / 0.35, 0, 1);
+      ctx.fillStyle = 'rgba(255,214,51,0.6)';
+      ctx.beginPath();
+      ctx.moveTo(x0, 342); ctx.lineTo(lerp(x0, x1, k), 338); ctx.lineTo(lerp(x0, x1, k), 366); ctx.lineTo(x0, 370);
+      ctx.fill();
+    }
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    for (const L of logoLetters) {
+      const age = t - (L.fire + LOGO_SHOT);
+      if (age < 0) continue;
+      const pop = age < 0.22 ? 1 - age / 0.22 : 0;
+      const wig = party ? Math.sin(t * 9 + L.x * 0.05) * 6 : 0;
+      ctx.save();
+      ctx.translate(L.x, L.y + wig);
+      ctx.rotate(noise(L.x + boil) * 0.05);
+      ctx.scale(1 + pop * 0.6, 1 + pop * 0.6);
+      drawText(L.ch, 0, 0, L.size, pop > 0.5 ? RED : L.color, NUM_FONT, L.x + boil);
+      ctx.restore();
+      if (age < 0.35) {
+        ctx.globalAlpha = 1 - age / 0.35; ctx.fillStyle = INK;
+        for (let j = 0; j < 7; j++) {
+          const a = noise(L.x + j * 3) * Math.PI, r = 22 + age * 130 + noise(j + L.y) * 6;
+          ctx.beginPath(); ctx.arc(L.x + Math.cos(a) * r, L.y - Math.abs(Math.sin(a)) * r * 0.6 + 10, 2.5, 0, Math.PI * 2); ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+      }
+    }
+    for (const L of logoLetters) {
+      const a = Math.atan2(L.y - sy0, L.x - sx0);
+      vShot(sx0 + Math.cos(a) * 50, sy0 + Math.sin(a) * 50, L.x, L.y, L.fire, LOGO_SHOT, t, L.ch, L.size * 0.6);
+    }
+    const jump = party ? Math.abs(Math.sin((t - LOGO_DONE) * 7)) * 20 : 0;
+    drawStick(PX, PY - jump, aim, rec, 0, boil);
+    if (t > LOGO_DONE + 0.5) {
+      const k = clamp((t - LOGO_DONE - 0.5) / 0.3, 0, 1);
+      ctx.save();
+      ctx.globalAlpha = k;
+      ctx.translate(200, 540); ctx.rotate(-0.06); ctx.scale(0.6 + 0.4 * easeOutBack(k), 0.6 + 0.4 * easeOutBack(k));
+      drawText('Sticky Math', 0, 0, 52, '#7a4bd8', NUM_FONT, boil);
+      ctx.restore();
+    }
+  }
+
+  function renderIntro() {
+    const boil = Math.floor(clock * 9);
+    const sx = canvas.width / W, sy = canvas.height / H;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.drawImage(bg, 0, 0);
+    ctx.setTransform(sx, 0, 0, sy, 0, 0);
+    if (introT < LOGO_AT) {
+      ctx.fillStyle = 'rgba(46,40,36,0.9)'; ctx.fillRect(0, 0, W, H);
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.save(); ctx.translate(W / 2, 150); ctx.rotate(-0.04);
+      drawText('STICKY MATH', 0, 0, 58, '#ffe066', NUM_FONT, boil);
+      ctx.restore();
+      const i = Math.min(CLIPS - 1, Math.floor(introT / CLIP_LEN));
+      drawClip(i, introT - i * CLIP_LEN, boil);
+      for (let k = 0; k < CLIPS; k++) {
+        ctx.fillStyle = k === i ? '#ffe066' : 'rgba(255,255,255,0.25)';
+        ctx.beginPath(); ctx.arc(W / 2 + (k - 1) * 24, 790, 6, 0, Math.PI * 2); ctx.fill();
+      }
+    } else {
+      const lt = introT - LOGO_AT;
+      drawLogo(lt, boil);
+      if (lt < 0.35) { ctx.fillStyle = `rgba(46,40,36,${0.9 * (1 - lt / 0.35)})`; ctx.fillRect(0, 0, W, H); }
+    }
+    const fadeIn = clamp(1 - introT / 0.4, 0, 1), fadeOut = clamp((introT - (INTRO_LEN - 0.4)) / 0.4, 0, 1);
+    const f = Math.max(fadeIn, fadeOut);
+    if (f > 0) { ctx.fillStyle = `rgba(243,239,230,${f})`; ctx.fillRect(0, 0, W, H); }
+  }
+
   // ---------- döngü ----------
   let last = performance.now();
   function frame(now) {
     requestAnimationFrame(frame);
     const dt = Math.min(0.05, (now - last) / 1000);
     last = now;
-    if (S.mode !== 'pause') {
+    if (S.mode === 'intro') {
+      clock += dt;
+      introT += dt;
+      if (introT >= INTRO_LEN) endIntro();
+    } else if (S.mode !== 'pause') {
       clock += dt;
       if (S.mode === 'play') update(dt);
       updateFx(dt);
     }
     if (canvas.width < 2 || canvas.height < 2) { resize(); return; }
-    render();
+    if (S.mode === 'intro') renderIntro(); else render();
   }
 
   // ---------- girdi ----------
@@ -898,6 +1175,10 @@
 
   window.addEventListener('keydown', e => {
     if (e.repeat && e.code !== 'Space') return;
+    if (S.mode === 'intro') {
+      if (e.key === 'Escape' || e.key === 'Enter' || e.code === 'Space') { e.preventDefault(); endIntro(); }
+      return;
+    }
     if (S.mode === 'play') {
       if (e.key >= '1' && e.key <= '5') select(+e.key - 1);
       else if (e.key === 'q' || e.key === 'Q' || e.key === 'ArrowLeft') select((S.sel + OPS.length - 1) % OPS.length);
@@ -921,14 +1202,19 @@
   $('btnResume').addEventListener('click', resumeGame);
   $('btnQuit').addEventListener('click', toMenu);
   $('btnMenu').addEventListener('click', toMenu);
+  $('btnSkip').addEventListener('click', endIntro);
 
   // ---------- başlat ----------
   if (/[?&]debug\b/.test(location.search)) {
-    window.__sm = { get S() { return S; }, render, update, updateFx, spawnEnemy, startGame, fire };
+    window.__sm = {
+      get S() { return S; }, render, update, updateFx, spawnEnemy, startGame, fire,
+      seekIntro(t) { if (S.mode !== 'intro') startIntro(); introT = t; }, INTRO_LEN,
+    };
   }
   syncMute();
   $('bestMenu').textContent = best;
   resize();
+  if (/[?&](nointro|debug)\b/.test(location.search)) toMenu(); else startIntro();
   requestAnimationFrame(frame);
   if (document.fonts && document.fonts.load) {
     Promise.all([document.fonts.load(`40px ${NUM_FONT}`), document.fonts.load(`30px ${UI_FONT}`)])
