@@ -1,0 +1,4 @@
+# Cloudflare Pages: tarayıcı her açılışta dosyaların güncel olup olmadığını sorsun
+# (değişmediyse 304 döner, yine hızlıdır). Böylece güncellemeler eski önbelleğe takılmaz.
+/*
+  Cache-Control: no-cache

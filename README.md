@@ -34,3 +34,5 @@ python -m http.server 8765
 ```
 
 `?nointro` aÃ§Ä±lÄ±ÅŸ animasyonunu atlar, `?debug` test iÃ§in `window.__sm` kancasÄ±nÄ± aÃ§ar.
+
+Her yayında `index.html` içindeki `game.js?v=N` ve `style.css?v=N` numarasını bir artır; `_headers` da tarayıcıların dosyaları her açılışta yeniden kontrol etmesini sağlar.
