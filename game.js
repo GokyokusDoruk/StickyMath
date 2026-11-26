@@ -1090,7 +1090,7 @@
       ctx.save(); ctx.translate(W / 2, 150); ctx.rotate(-0.04);
       drawText('STICKY MATH', 0, 0, 58, '#ffe066', NUM_FONT, boil);
       ctx.restore();
-      const i = Math.min(CLIPS - 1, Math.floor(introT / CLIP_LEN));
+      const i = clamp(Math.floor(introT / CLIP_LEN), 0, CLIPS - 1);
       drawClip(i, introT - i * CLIP_LEN, boil);
       for (let k = 0; k < CLIPS; k++) {
         ctx.fillStyle = k === i ? '#ffe066' : 'rgba(255,255,255,0.25)';
@@ -1110,7 +1110,8 @@
   let last = performance.now();
   function frame(now) {
     requestAnimationFrame(frame);
-    const dt = Math.min(0.05, (now - last) / 1000);
+    // rAF zaman damgası ilk karede performance.now()'dan geride olabilir: dt asla negatif olmasın.
+    const dt = clamp((now - last) / 1000, 0, 0.05);
     last = now;
     if (S.mode === 'intro') {
       clock += dt;
@@ -1122,7 +1123,15 @@
       updateFx(dt);
     }
     if (canvas.width < 2 || canvas.height < 2) { resize(); return; }
-    if (S.mode === 'intro') renderIntro(); else render();
+    try {
+      if (S.mode === 'intro') renderIntro(); else render();
+    } catch (err) {
+      // Yarım kalan save()/clip() bir sonraki kareleri bozmasın; boş yığında restore() zararsızdır.
+      for (let k = 0; k < 64; k++) ctx.restore();
+      ctx.globalAlpha = 1;
+      if (S.mode === 'intro') endIntro();
+      console.error(err);
+    }
   }
 
   // ---------- girdi ----------
