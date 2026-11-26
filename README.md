@@ -23,6 +23,14 @@ Tarayıcıda oynanan matematik aksiyon oyunu. Sayılar defter sayfasında çöp 
 
 Ölen sayılar mor XP damlası bırakır. XP barı dolunca seviye atlarsın ve bir silahı geliştirirsin (+10 can).
 
+## Bölümler ve bosslar
+
+- 20 bölüm, her biri 10 dalga. 5. ve 10. dalgalar silgi bossu.
+- Zorluk 1–16 arası yumuşak artar, 17–20 sert sıçrar.
+- Bosslar: Şişko, Şapkalı (küçük sayı çağırır), Koşucu (atılır), Öğretmen (hesap makinesi sorusu sorar), Zombi (kendini onarır), Ninja (ışınlanır, kırıntı fırlatır), Hayalet (görünmez olur), İkiz, Kral; 20. bölümün sonunda Dev Silgi.
+- Bosslarda ÷ zırhı: tek ÷ vuruşu başlangıç değerinin en fazla %12'sini götürür.
+- Bölümü ilk kez geçmek +1 yetenek puanı verir; para her seferinde verilir, ölünce geçilen dalga oranında. İlerleme `localStorage`'da (`sm_save_v1`).
+
 ## Yayın
 
 Cloudflare Pages `main` dalını `stickymath.dorukplays.com` adresine yayınlar. Diğer dallar için önizleme adresi: `https://<dal-adı>.stickymath.pages.dev`.
@@ -35,4 +43,4 @@ python -m http.server 8765
 
 `?nointro` açılış animasyonunu atlar, `?debug` test için `window.__sm` kancasını açar.
 
-Her yay�nda `index.html` i�indeki `game.js?v=N` ve `style.css?v=N` numaras�n� bir art�r; `_headers` da taray�c�lar�n dosyalar� her a��l��ta yeniden kontrol etmesini sa�lar.
+Her yay�nda `index.html` i�indeki `game.js?v=N` ve `style.css?v=N` numaras�n� bir art�r; `_headers` da taray�c�lar�n dosyalar� her a��l��ta yeniden kontrol etmesini sa�lar.

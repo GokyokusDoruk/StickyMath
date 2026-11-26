@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Gochi+Hand&family=Permanent+Marker&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=2">
+  <link rel="stylesheet" href="style.css?v=3">
 </head>
 <body>
   <div id="wrap" data-mode="menu">
@@ -35,7 +35,7 @@
         <li>Seviye atla, silahlarını <b>geliştir</b></li>
       </ul>
       <button class="big" id="btnStart">Oyna</button>
-      <p class="best">En iyi: <span id="bestMenu">0</span> RP</p>
+      <p class="best" id="menuTotals"></p>
     </div>
 
     <div id="pause" class="overlay">
@@ -51,16 +51,52 @@
       <div id="luChoices" class="choices"></div>
     </div>
 
+    <div id="stages" class="overlay">
+      <a class="home" href="https://dorukplays.com">← dorukplays.com</a>
+      <h2>Bölüm seç</h2>
+      <p class="best" id="stTotals"></p>
+      <div id="stGrid" class="stage-grid"></div>
+      <button id="btnStagesBack">Ana menü</button>
+    </div>
+
+    <div id="quiz" class="overlay">
+      <div class="calc">
+        <div class="calc-top"><span>ÖĞRETMEN SİLGİ SORUYOR</span><span class="calc-brand">STICKY-20</span></div>
+        <div class="lcd">
+          <div id="qText" class="q">7 × 8 =</div>
+          <div id="qInput" class="a"></div>
+        </div>
+        <div class="timer"><div id="qBar"></div></div>
+        <div class="keys">
+          <button data-k="7">7</button><button data-k="8">8</button><button data-k="9">9</button>
+          <button data-k="4">4</button><button data-k="5">5</button><button data-k="6">6</button>
+          <button data-k="1">1</button><button data-k="2">2</button><button data-k="3">3</button>
+          <button data-k="-" class="fn">±</button><button data-k="0">0</button><button data-k="back" class="fn">⌫</button>
+          <button data-k="ok" class="eq">=</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="clear" class="overlay">
+      <a class="home" href="https://dorukplays.com">← dorukplays.com</a>
+      <h2 id="clTitle">Bölüm 1 tamamlandı!</h2>
+      <p class="score reward" id="clReward"></p>
+      <p class="sub" id="clTotals"></p>
+      <button class="big" id="btnNext">Sonraki bölüm</button>
+      <button id="btnClearStages">Bölümler</button>
+    </div>
+
     <div id="over" class="overlay">
       <a class="home" href="https://dorukplays.com">← dorukplays.com</a>
       <h2>Defter doldu!</h2>
-      <p class="sub">Sayfa <span id="ovWave">1</span> · Seviye <span id="ovLevel">1</span></p>
-      <p class="score"><span id="ovRp">0</span> RP</p>
+      <p class="sub">Bölüm <span id="ovStage">1</span> · Dalga <span id="ovWave">1</span>/10 · Seviye <span id="ovLevel">1</span></p>
+      <p class="score"><span id="ovRp">0</span> para</p>
       <p class="sub" id="ovBest"></p>
       <button class="big" id="btnRetry">Tekrar</button>
+      <button id="btnOverStages">Bölümler</button>
       <button id="btnMenu">Ana menü</button>
     </div>
   </div>
-  <script src="game.js?v=2"></script>
+  <script src="game.js?v=3"></script>
 </body>
 </html>

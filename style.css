@@ -96,6 +96,72 @@ button.choice[disabled] { opacity: .45; cursor: default; transform: none; backgr
 .choice .dim { opacity: .6; font-size: calc(var(--s) * 17px); line-height: 1.15; }
 .choice .k { position: absolute; top: calc(var(--s) * 6px); left: calc(var(--s) * 10px); opacity: .45; }
 
+/* bölüm seçimi */
+.stage-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: calc(var(--s) * 10px);
+  width: 100%;
+}
+button.stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: calc(var(--s) * 8px) 0;
+  font-size: calc(var(--s) * 15px);
+}
+button.stage .n { font-family: "Permanent Marker", cursive; font-size: calc(var(--s) * 32px); line-height: 1.1; }
+button.stage.done { background: #d9f0d2; }
+button.stage.hard { border-color: #d43a2f; }
+button.stage.hard .n { color: #d43a2f; }
+button.stage[disabled] { opacity: .35; cursor: default; transform: none; }
+
+/* öğretmen silginin hesap makinesi: ekran birden hesap makinesine döner */
+#quiz { background: rgba(20, 18, 16, .55); }
+#quiz.show .calc { animation: calcIn .35s cubic-bezier(.2, .9, .3, 1.25); }
+@keyframes calcIn {
+  from { transform: perspective(800px) rotateY(80deg) scale(.6); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+.calc {
+  width: 100%;
+  max-width: calc(var(--s) * 420px);
+  background: #2c2f36;
+  border: calc(var(--s) * 4px) solid #1f1d1b;
+  border-radius: calc(var(--s) * 28px);
+  padding: calc(var(--s) * 18px);
+  box-shadow: 0 calc(var(--s) * 10px) 0 #17181c;
+  color: #e9edf2;
+}
+.calc-top { display: flex; justify-content: space-between; font-size: calc(var(--s) * 16px); opacity: .8; margin-bottom: calc(var(--s) * 10px); }
+.calc-brand { font-family: "Permanent Marker", cursive; color: #ffe066; }
+.lcd {
+  background: #b9c9a3;
+  color: #1f2a17;
+  border-radius: calc(var(--s) * 10px);
+  padding: calc(var(--s) * 10px) calc(var(--s) * 16px);
+  text-align: right;
+  font-family: "Permanent Marker", monospace;
+  box-shadow: inset 0 calc(var(--s) * 4px) 0 rgba(0, 0, 0, .15);
+}
+.lcd .q { font-size: calc(var(--s) * 30px); opacity: .75; }
+.lcd .a { font-size: calc(var(--s) * 54px); min-height: 1.15em; line-height: 1.15; }
+.lcd .a:empty::after { content: '_'; animation: blink 1s steps(1) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+.timer { height: calc(var(--s) * 10px); background: #45484f; border-radius: 99px; margin: calc(var(--s) * 12px) 0; overflow: hidden; }
+#qBar { height: 100%; width: 100%; background: linear-gradient(90deg, #d43a2f, #ffd633); }
+.keys { display: grid; grid-template-columns: repeat(3, 1fr); gap: calc(var(--s) * 10px); }
+.keys button {
+  font-family: "Permanent Marker", cursive;
+  font-size: calc(var(--s) * 34px);
+  padding: calc(var(--s) * 8px) 0;
+  color: #1f1d1b;
+  background: #f3efe6;
+  border-radius: calc(var(--s) * 14px);
+}
+.keys button.fn { background: #c9c3b6; }
+.keys button.eq { grid-column: 1 / -1; background: #ffe066; }
+
 #btnSkip {
   position: absolute;
   right: calc(var(--s) * 18px);
@@ -178,3 +244,5 @@ button.big {
   padding: calc(var(--s) * 6px) calc(var(--s) * 54px);
   background: #ffe066;
 }
+
+.score.reward { font-size: calc(var(--s) * 38px); line-height: 1.25; }

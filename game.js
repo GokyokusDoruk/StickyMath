@@ -62,6 +62,58 @@
     3: '× ile işaretle, vuruşlar katlansın',
   };
 
+  // ---------- bölümler ----------
+  const STAGES = 20, WAVES = 10;
+  const isBossWave = w => w === 5 || w === 10;
+  // Zorluk eğrisi: 1–16 yumuşak artar, 17–20 sert sıçrar.
+  function stageCfg(s) {
+    const hard = Math.max(0, s - 16);                     // 0..4
+    const hardMul = 1 + hard * 0.45;
+    return {
+      mult: (1 + (s - 1) * 0.12) * hardMul,              // sayıların büyüklüğü
+      spd: 1 + (s - 1) * 0.02 + hard * 0.14,             // düşman hızı
+      extra: Math.floor(s / 4) + hard * 3,               // dalgaya eklenen düşman
+      dmg: 1 + (s - 1) * 0.03 + hard * 0.3,              // temas hasarı çarpanı
+      gap: Math.max(0.45, 1.9 - s * 0.035 - hard * 0.12), // doğma aralığı
+      hardMul,
+    };
+  }
+  const stageMoney = s => 20 + s * 15;
+  const quizTime = s => Math.max(5, 11 - s * 0.3);
+
+  // ---------- silgi bossları ----------
+  // body/sleeve: silginin pembe gövdesi ve kağıt kılıfı
+  const BOSS_TYPES = {
+    sisko:    { name: 'Şişko Silgi', spd: 16, size: 1.35, wide: 1.3, hp: 1.6, dmg: 1.8, body: '#f2a7b5', sleeve: '#3a6fd1' },
+    sapkali:  { name: 'Şapkalı Silgi', spd: 22, size: 1.15, hp: 1.0, dmg: 1.2, body: '#f2a7b5', sleeve: '#2f9a6a', summon: 5.5 },
+    kosucu:   { name: 'Koşucu Silgi', spd: 40, size: 1.05, hp: 0.8, dmg: 1.3, body: '#f5b98d', sleeve: '#d64b3b', dash: 3.4 },
+    ogretmen: { name: 'Öğretmen Silgi', spd: 18, size: 1.2, hp: 1.0, dmg: 1.2, body: '#f2a7b5', sleeve: '#6c4bb5', quiz: 12 },
+    zombi:    { name: 'Zombi Silgi', spd: 15, size: 1.2, hp: 1.1, dmg: 1.4, body: '#a9c79a', sleeve: '#5b6b4a', regen: 0.035 },
+    ninja:    { name: 'Ninja Silgi', spd: 30, size: 1.05, hp: 0.9, dmg: 1.2, body: '#6b6b72', sleeve: '#1f1d1b', blink: 4.2, throw: 2.4 },
+    hayalet:  { name: 'Hayalet Silgi', spd: 26, size: 1.15, hp: 0.9, dmg: 1.2, body: '#f4f1ec', sleeve: '#9aa7b8', ghost: true },
+    ikiz:     { name: 'İkiz Silgiler', spd: 26, size: 1.0, hp: 0.6, dmg: 1.1, body: '#f2a7b5', sleeve: '#e0407a', twins: true },
+    kral:     { name: 'Kral Silgi', spd: 20, size: 1.3, hp: 1.3, dmg: 1.5, body: '#f2c46d', sleeve: '#7a2e8f', summon: 6.5, dash: 5 },
+    dev:      { name: 'Dev Silgi', spd: 16, size: 1.7, hp: 2.4, dmg: 2.0, body: '#e98b9c', sleeve: '#1f1d1b', summon: 7, dash: 6, quiz: 16, throw: 3.2 },
+  };
+  const BOSS_ROTATION = ['sisko', 'sapkali', 'kosucu', 'ogretmen', 'zombi', 'ninja', 'hayalet', 'ikiz', 'kral'];
+  function bossFor(s, w) {
+    if (s === STAGES && w === WAVES) return 'dev';
+    return BOSS_ROTATION[(2 * (s - 1) + (w === WAVES ? 1 : 0)) % BOSS_ROTATION.length];
+  }
+
+  // ---------- kayıt ----------
+  const SAVE_KEY = 'sm_save_v1';
+  const defaultSave = () => ({ unlocked: 1, cleared: [], sp: 0, money: 0 });
+  function loadSave() {
+    try {
+      const s = JSON.parse(localStorage.getItem(SAVE_KEY));
+      if (s && s.unlocked) return Object.assign(defaultSave(), s);
+    } catch (e) { /* bozuk kayıt: sıfırdan başla */ }
+    return defaultSave();
+  }
+  let save = loadSave();
+  function writeSave() { try { localStorage.setItem(SAVE_KEY, JSON.stringify(save)); } catch (e) { /* depolama kapalı */ } }
+
   // ---------- ses ----------
   const Snd = {
     ac: null, noiseBuf: null,
@@ -111,6 +163,14 @@
     empty() { this.tone(140, 0.07, 'square', 0.035); },
     select() { this.tone(660, 0.04, 'sine', 0.03); },
     wave() { [523, 659, 784].forEach((f, i) => this.tone(f, 0.14, 'triangle', 0.05, 0, i * 0.08)); },
+    boss() { [196, 185, 175, 147].forEach((f, i) => this.tone(f, 0.22, 'sawtooth', 0.06, 0, i * 0.16)); },
+    bossKill() { [392, 523, 659, 784, 1047].forEach((f, i) => this.tone(f, 0.2, 'triangle', 0.07, 0, i * 0.08)); this.noise(0.4, 0.08, 1500); },
+    quiz() { this.tone(880, 0.08, 'square', 0.05); this.tone(1175, 0.12, 'square', 0.05, 0, 0.09); },
+    right() { [659, 880, 1175].forEach((f, i) => this.tone(f, 0.12, 'sine', 0.06, 0, i * 0.06)); },
+    wrong() { this.tone(220, 0.35, 'sawtooth', 0.07, -100); },
+    dash() { this.noise(0.25, 0.06, 600); this.tone(300, 0.2, 'sawtooth', 0.04, 300); },
+    poof() { this.noise(0.2, 0.05, 2500); },
+    win() { [523, 659, 784, 1047, 784, 1047].forEach((f, i) => this.tone(f, 0.18, 'triangle', 0.07, 0, i * 0.11)); },
   };
 
   // ---------- durum ----------
@@ -124,8 +184,9 @@
       xp: 0, xpShown: 0, level: 1, pendingLevels: 0,
       wlv: [1, 1, 1, 1],
       ammo: [Infinity, Infinity, AMMO_CAP, AMMO_CAP], ammoCap: AMMO_CAP, ammoT: [0, 0, 0, 0],
+      stage: 1, cfg: stageCfg(1), bullets: [], quiz: null,
       wave: 0, waveTotal: 0, resolved: 0,
-      spawnQueue: [], spawnT: 0, waveActive: false, nextWaveT: 0,
+      spawnQueue: [], spawnT: 0, waveActive: false, nextWaveT: 0, bossPending: null,
       banner: null,
       sel: 0, cardShake: [0, 0, 0, 0],
       px: W / 2, py: P_MAX_Y - 60, pvx: 0, pvy: 0, walk: 0,
@@ -138,7 +199,6 @@
     };
   }
   S = newState();
-  let best = +localStorage.getItem('sm_best') || 0;
   let clock = 0;
   const shoulder = () => ({ x: S.px - 2, y: S.py - 36 });
 
@@ -183,8 +243,9 @@
 
   // ---------- dalgalar ----------
   function genWave(w) {
-    const n = Math.min(4 + w * 2, 22);
-    const maxV = Math.min(5 + w * 4, 120);
+    const c = S.cfg;
+    const n = Math.min(4 + w + c.extra, 26);
+    const maxV = Math.max(4, Math.round((4 + w * 2.5) * c.mult));
     const out = [];
     for (let i = 0; i < n; i++) {
       const sg = Math.random() < 0.6 ? 1 : -1;
@@ -197,28 +258,71 @@
 
   function startWave() {
     S.wave++;
-    S.spawnQueue = genWave(S.wave);
-    S.waveTotal = S.spawnQueue.length;
     S.resolved = 0;
-    S.spawnT = 1.5;
     S.waveActive = true;
-    S.banner = { text: `Sayfa ${S.wave}`, sub: WAVE_HINTS[S.wave] || '', t: 0, life: 2.2 };
-    Snd.wave();
+    if (isBossWave(S.wave)) {
+      const type = bossFor(S.stage, S.wave);
+      S.spawnQueue = [];
+      S.bossPending = type;
+      S.waveTotal = BOSS_TYPES[type].twins ? 2 : 1;
+      S.spawnT = 2.2;
+      S.banner = { text: 'BOSS!', sub: BOSS_TYPES[type].name, t: 0, life: 2.4, boss: true };
+      Snd.boss();
+    } else {
+      S.spawnQueue = genWave(S.wave);
+      S.waveTotal = S.spawnQueue.length;
+      S.spawnT = 1.5;
+      const hint = S.stage === 1 ? WAVE_HINTS[S.wave] : '';
+      S.banner = { text: `Dalga ${S.wave}/${WAVES}`, sub: hint || '', t: 0, life: 2.0 };
+      Snd.wave();
+    }
   }
 
-  function spawnEnemy(v) {
+  function spawnPos(minDist) {
     let x = 0, y = 0;
     for (let tries = 0; tries < 30; tries++) {
-      x = rand(80, W - 50); y = rand(PLAY_TOP + 40, PLAY_BOTTOM - 60);
-      if (Math.hypot(x - S.px, y - S.py) > 260 && S.enemies.every(e => Math.hypot(e.x - x, e.y - y) > 80)) break;
+      x = rand(80, W - 50); y = rand(PLAY_TOP + 60, PLAY_BOTTOM - 60);
+      if (Math.hypot(x - S.px, y - S.py) > minDist && S.enemies.every(e => Math.hypot(e.x - x, e.y - y) > 80)) break;
     }
-    const spd = Math.min(62, 22 + S.wave * 2.2 + rand(0, 10));
-    S.enemies.push({
+    return { x, y };
+  }
+
+  function spawnEnemy(v, at, extra) {
+    const { x, y } = at || spawnPos(260);
+    const spd = Math.min(70, (22 + S.wave * 2 + rand(0, 10)) * S.cfg.spd);
+    const e = {
       id: S.nextId++, value: v, prev: v, v0: v, x, y, vx: 0, vy: 0, r: radiusFor(v),
       pop: 0, change: 0, flash: 0, write: 0, spd, wob: Math.random() * 6.28, dead: false,
       markMul: 1, markT: 0,
-    });
+    };
+    S.enemies.push(Object.assign(e, extra));
     for (let i = 0; i < 6; i++) addPart('line', x + rand(-20, 20), y + rand(-20, 20), rand(-60, 60), rand(-60, 60), 0.35, INK, 2);
+    return e;
+  }
+
+  function bossHp(s, w, B) {
+    const base = w === WAVES ? 80 + s * 25 : 40 + s * 12;
+    return Math.max(10, Math.round(base * stageCfg(s).hardMul * B.hp));
+  }
+
+  function spawnBoss(type) {
+    const B = BOSS_TYPES[type];
+    const n = B.twins ? 2 : 1;
+    const sign0 = Math.random() < 0.5 ? 1 : -1;
+    for (let k = 0; k < n; k++) {
+      const hp = bossHp(S.stage, S.wave, B);
+      const v = (B.twins ? (k === 0 ? 1 : -1) : sign0) * hp;
+      const at = spawnPos(300);
+      const e = spawnEnemy(v, at, {
+        boss: type, size: B.size, r: 46 * B.size * (B.wide || 1),
+        spd: B.spd * S.cfg.spd, t: rand(0, 1), lastHit: 0, regenAcc: 0,
+        dashState: 0, dashT: B.dash ? B.dash * 0.6 : 0, dashDir: 0,
+        sumT: B.summon ? 2.5 : 0, thrT: B.throw ? 1.5 : 0, blkT: B.blink ? 3 : 0, qT: B.quiz ? 4.5 : 0,
+        ghostA: 1,
+      });
+      burst(e.x, e.y, 24, '#e0407a');
+    }
+    S.shake = 12;
   }
 
   // ---------- efekt yardımcıları ----------
@@ -256,13 +360,17 @@
   // ---------- oyun olayları ----------
   function killEnemy(e) {
     e.dead = true;
-    S.resolved++;
-    burst(e.x, e.y, 18);
-    addPart('ghost', e.x, e.y, 0, 0, 0.45, INK, 46, { text: '0' });
-    S.shake = Math.max(S.shake, 5);
+    if (!e.minion) S.resolved++;
+    burst(e.x, e.y, e.boss ? 50 : 18, e.boss ? '#e0407a' : INK);
+    addPart('ghost', e.x, e.y, 0, 0, e.boss ? 0.9 : 0.45, INK, e.boss ? 110 : 46, { text: '0' });
+    S.shake = Math.max(S.shake, e.boss ? 18 : 5);
     S.rp += Math.abs(e.v0); S.rpPop = 1;
+    if (e.boss) {
+      Snd.bossKill();
+      popup(e.x, e.y - 60, [{ text: `${BOSS_TYPES[e.boss].name} silindi!`, color: '#e0407a', size: 32, font: NUM_FONT }], 1.8);
+    }
     // XP mürekkep damlaları: önce saçılır, sonra oyuncuya uçar
-    const total = xpFor(e.v0), n = Math.min(6, Math.ceil(total / 3));
+    const total = xpFor(e.v0) * (e.boss ? 3 : 1) * (e.minion ? 0.5 : 1), n = Math.min(e.boss ? 14 : 6, Math.ceil(total / 3));
     for (let i = 0; i < n; i++) {
       const a = Math.random() * Math.PI * 2, sp = rand(80, 200);
       S.orbs.push({ x: e.x, y: e.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, val: total / n, age: 0 });
@@ -293,25 +401,42 @@
     } else {
       nv = Math.trunc(v / p);
       label = '÷' + p;
+      // bossların ÷ zırhı: tek vuruşta başlangıç değerinin en fazla %12'si gider
+      if (e.boss) {
+        const cap = Math.max(1, Math.round(Math.abs(e.v0) * 0.12));
+        if (Math.abs(v - nv) > cap) { nv = v - Math.sign(v) * cap; label = `÷${p} (zırh)`; }
+      }
     }
-    nv = clamp(nv, -9999, 9999);
-    e.prev = v; e.value = nv; e.change = 1; e.pop = 1; e.flash = 1; e.r = radiusFor(nv);
+    nv = clamp(nv, -99999, 99999);
+    if (e.boss) { e.lastHit = e.t; e.prev = v; e.value = nv; e.change = 1; e.pop = 0.6; e.flash = 1; }
+    else { e.prev = v; e.value = nv; e.change = 1; e.pop = 1; e.flash = 1; e.r = radiusFor(nv); }
     splat(s.x, s.y, dir, 7);
     addLabel(s.x, s.y - 14, label, RED, 22);
     Snd.hit(nv);
     if (nv === 0) killEnemy(e);
   }
 
+  function contactDamage(e) {
+    if (e.boss) return Math.round((10 + S.stage * 0.8) * BOSS_TYPES[e.boss].dmg * S.cfg.dmg);
+    return Math.round(clamp(6 + Math.abs(e.value) * 0.15, 6, 20) * S.cfg.dmg);
+  }
+
   function hurtPlayer(e) {
     if (S.iframes > 0) return;
-    const dmg = Math.round(clamp(6 + Math.abs(e.value) * 0.3, 6, 25));
+    const cx = S.px, cy = S.py - 20;
+    const a = Math.atan2(e.y - cy, e.x - cx);
+    if (e.boss) { if (e.dashState === 2) { e.dashState = 0; e.dashT = BOSS_TYPES[e.boss].dash; } }
+    else { e.vx = Math.cos(a) * 280; e.vy = Math.sin(a) * 280; }
+    S.pvx -= Math.cos(a) * 300; S.pvy -= Math.sin(a) * 300;
+    damagePlayer(contactDamage(e));
+  }
+
+  function damagePlayer(dmg) {
+    if (S.iframes > 0 || S.mode !== 'play') return;
+    const cx = S.px, cy = S.py - 20;
     S.hp = Math.max(0, S.hp - dmg);
     S.iframes = HIT_IFRAMES;
     S.hurt = 1; S.shake = 14;
-    const cx = S.px, cy = S.py - 20;
-    const a = Math.atan2(e.y - cy, e.x - cx);
-    e.vx = Math.cos(a) * 280; e.vy = Math.sin(a) * 280;
-    S.pvx -= Math.cos(a) * 260; S.pvy -= Math.sin(a) * 260;
     burst(cx, cy, 12, RED);
     addLabel(cx, cy - 60, MINUS + dmg, RED, 28);
     Snd.hurt();
@@ -371,7 +496,7 @@
   function findTarget(x, y) {
     let target = null, best = Infinity;
     for (const e of S.enemies) {
-      if (e.dead || e.write < 1) continue;
+      if (e.dead || e.write < 1 || e.ghostA < 0.5) continue;
       const d = Math.hypot(e.x - x, e.y - y) - e.r;
       if (d < 55 && d < best) { best = d; target = e; }
     }
@@ -380,7 +505,7 @@
   function nearestEnemy(from) {
     let target = null, best = Infinity;
     for (const e of S.enemies) {
-      if (e.dead || e.write < 1) continue;
+      if (e.dead || e.write < 1 || e.ghostA < 0.5) continue;
       const d = Math.hypot(e.x - from.x, e.y - from.y);
       if (d < best) { best = d; target = e; }
     }
@@ -389,7 +514,7 @@
   function coneTarget(from, dir, cone) {
     let target = null, best = Infinity;
     for (const e of S.enemies) {
-      if (e.dead || e.write < 1) continue;
+      if (e.dead || e.write < 1 || e.ghostA < 0.5) continue;
       const a = Math.atan2(e.y - from.y, e.x - from.x);
       const da = Math.abs(((a - dir + Math.PI * 3) % (Math.PI * 2)) - Math.PI);
       if (da > cone) continue;
@@ -397,6 +522,177 @@
       if (d < best) { best = d; target = e; }
     }
     return target;
+  }
+
+  // ---------- boss davranışları ----------
+  function updateBoss(e, dt) {
+    const B = BOSS_TYPES[e.boss];
+    const cx = S.px, cy = S.py - 20;
+    e.t += dt;
+    if (B.ghost) e.ghostA = (e.t % 5) < 3 ? 1 : 0.12;   // 3 sn görünür, 2 sn neredeyse görünmez
+    if (B.regen && e.t - e.lastHit > 2 && Math.abs(e.value) < Math.abs(e.v0)) {
+      e.regenAcc += Math.abs(e.v0) * B.regen * dt;
+      while (e.regenAcc >= 1 && Math.abs(e.value) < Math.abs(e.v0)) { e.regenAcc -= 1; e.value += Math.sign(e.v0); }
+    }
+    if (B.dash) {
+      e.dashT -= dt;
+      if (e.dashState === 0 && e.dashT <= 0) { e.dashState = 1; e.dashT = 0.65; e.dashDir = Math.atan2(cy - e.y, cx - e.x); }
+      else if (e.dashState === 1 && e.dashT <= 0) { e.dashState = 2; e.dashT = 0.55; Snd.dash(); }
+      else if (e.dashState === 2 && e.dashT <= 0) { e.dashState = 0; e.dashT = B.dash; }
+    }
+    if (B.summon) { e.sumT -= dt; if (e.sumT <= 0) { e.sumT = B.summon; summonMinions(e); } }
+    if (B.throw) { e.thrT -= dt; if (e.thrT <= 0) { e.thrT = B.throw; throwCrumbs(e, e.boss === 'dev' ? 5 : 3); } }
+    if (B.blink) { e.blkT -= dt; if (e.blkT <= 0) { e.blkT = B.blink; blinkBoss(e); } }
+    if (B.quiz) { e.qT -= dt; if (e.qT <= 0) { e.qT = B.quiz; openQuiz(e); } }
+  }
+
+  function summonMinions(e) {
+    const n = e.boss === 'dev' ? 4 : 3;
+    const maxV = Math.max(3, Math.round(4 * S.cfg.mult));
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2 + rand(-0.3, 0.3);
+      const at = { x: clamp(e.x + Math.cos(a) * (e.r + 40), 70, W - 50), y: clamp(e.y + Math.sin(a) * (e.r + 40), PLAY_TOP + 50, PLAY_BOTTOM - 50) };
+      spawnEnemy((Math.random() < 0.5 ? -1 : 1) * randi(1, maxV), at, { minion: true });
+    }
+    addLabel(e.x, e.y - e.r - 20, 'Gelin!', '#2f9a6a', 26);
+  }
+
+  function throwCrumbs(e, n) {
+    const a0 = Math.atan2(S.py - 20 - e.y, S.px - e.x);
+    for (let i = 0; i < n; i++) {
+      const a = a0 + (i - (n - 1) / 2) * 0.22;
+      S.bullets.push({ x: e.x, y: e.y, vx: Math.cos(a) * 230, vy: Math.sin(a) * 230, life: 4, rot: rand(0, 6) });
+    }
+    Snd.poof();
+  }
+
+  function blinkBoss(e) {
+    burst(e.x, e.y, 14, '#6b6b72');
+    const p = spawnPos(220);
+    e.x = p.x; e.y = p.y; e.vx = 0; e.vy = 0;
+    burst(e.x, e.y, 14, '#6b6b72');
+    Snd.poof();
+  }
+
+  function updateBullets(dt) {
+    const cx = S.px, cy = S.py - 20;
+    for (const b of S.bullets) {
+      b.life -= dt; b.rot += dt * 8;
+      b.x += b.vx * dt; b.y += b.vy * dt;
+      if (Math.hypot(b.x - cx, b.y - cy) < 26) { b.life = 0; damagePlayer(Math.round(8 * S.cfg.dmg)); if (S.mode !== 'play') break; }
+      if (b.x < -20 || b.x > W + 20 || b.y < PLAY_TOP - 20 || b.y > PLAY_BOTTOM + 20) b.life = 0;
+    }
+    S.bullets = S.bullets.filter(b => b.life > 0);
+  }
+
+  // ---------- öğretmen silgi: hesap makinesi sorusu ----------
+  function makeQuestion(s) {
+    const r = Math.random();
+    let a, b, c, text, ans;
+    if (s <= 4) {
+      a = randi(2, 9 + s * 2); b = randi(1, 9);
+      if (r < 0.5) { text = `${a} + ${b}`; ans = a + b; } else { if (b > a) [a, b] = [b, a]; text = `${a} ${MINUS} ${b}`; ans = a - b; }
+    } else if (s <= 9) {
+      if (r < 0.55) { a = randi(2, 9); b = randi(2, 9); text = `${a} × ${b}`; ans = a * b; }
+      else { a = randi(11, 60); b = randi(5, 39); if (r < 0.8) { text = `${a} + ${b}`; ans = a + b; } else { if (b > a) [a, b] = [b, a]; text = `${a} ${MINUS} ${b}`; ans = a - b; } }
+    } else if (s <= 14) {
+      if (r < 0.4) { a = randi(3, 12); b = randi(3, 12); text = `${a} × ${b}`; ans = a * b; }
+      else if (r < 0.7) { b = randi(2, 9); ans = randi(2, 12); a = b * ans; text = `${a} ÷ ${b}`; }
+      else { a = randi(20, 99); b = randi(20, 99); text = `${a} ${MINUS} ${b}`; ans = a - b; }
+    } else {
+      if (r < 0.35) { a = randi(3, 12); b = randi(3, 12); c = randi(2, 30); text = `${a} × ${b} ${MINUS} ${c}`; ans = a * b - c; }
+      else if (r < 0.65) { a = randi(-20, 20); b = randi(-20, 20); text = `${fmt(a)} + (${fmt(b)})`; ans = a + b; }
+      else { b = randi(3, 12); ans = randi(-12, 12); a = b * ans; text = `${fmt(a)} ÷ ${b}`; }
+    }
+    return { text, ans };
+  }
+
+  function openQuiz(e) {
+    if (S.mode !== 'play') return;
+    const q = makeQuestion(S.stage);
+    const time = quizTime(S.stage);
+    S.quiz = { q, boss: e, time, left: time, input: '' };
+    setMode('quiz');
+    S.pointer.down = false; S.keyFire = false; S.keys = {}; S.stick = null; S.aimTouch = null;
+    $('qText').textContent = `${q.text} =`;
+    $('qInput').textContent = '';
+    $('qBar').style.width = '100%';
+    showOverlay('quiz');
+    Snd.quiz();
+  }
+
+  function quizKey(k) {
+    const Q = S.quiz;
+    if (!Q || S.mode !== 'quiz') return;
+    if (k === 'ok') { if (Q.input !== '' && Q.input !== MINUS) resolveQuiz(+Q.input.replace(MINUS, '-') === Q.q.ans); return; }
+    if (k === 'back') Q.input = Q.input.slice(0, -1);
+    else if (k === '-') Q.input = Q.input.startsWith(MINUS) ? Q.input.slice(1) : MINUS + Q.input;
+    else if (/^[0-9]$/.test(k) && Q.input.replace(MINUS, '').length < 5) Q.input += k;
+    $('qInput').textContent = Q.input;
+  }
+
+  function updateQuiz(dt) {
+    const Q = S.quiz;
+    if (!Q) return;
+    Q.left -= dt;
+    $('qBar').style.width = `${Math.max(0, Q.left / Q.time) * 100}%`;
+    if (Q.left <= 0) resolveQuiz(false, true);
+  }
+
+  function resolveQuiz(ok, timeout) {
+    const Q = S.quiz;
+    if (!Q) return;
+    S.quiz = null;
+    showOverlay(null);
+    setMode('play');
+    const e = Q.boss;
+    if (ok) {
+      Snd.right();
+      if (!e.dead) {
+        const cut = Math.max(1, Math.round(Math.abs(e.v0) * 0.1));
+        const nv = Math.abs(e.value) <= cut ? 0 : e.value - Math.sign(e.value) * cut;
+        e.prev = e.value; e.value = nv; e.change = 1; e.pop = 1; e.flash = 1;
+        if (nv === 0) killEnemy(e);
+      }
+      popup(S.px, S.py - 110, [{ text: 'DOĞRU!', color: '#2f9a6a', size: 40, font: NUM_FONT }, { text: `${Q.q.text} = ${fmt(Q.q.ans)}`, color: INK, size: 22, font: NUM_FONT }], 1.4);
+    } else {
+      Snd.wrong();
+      if (!e.dead) { const heal = Math.round(Math.abs(e.v0) * 0.1); e.value += Math.sign(e.value || e.v0) * heal; e.pop = 1; }
+      popup(S.px, S.py - 110, [{ text: timeout ? 'SÜRE BİTTİ!' : 'YANLIŞ!', color: RED, size: 40, font: NUM_FONT }, { text: `${Q.q.text} = ${fmt(Q.q.ans)}`, color: INK, size: 22, font: NUM_FONT }], 1.6);
+      S.iframes = 0;
+      damagePlayer(Math.round(15 * S.cfg.dmg));
+    }
+    S.iframes = Math.max(S.iframes, 1.0);
+  }
+
+  // ---------- bölüm akışı ----------
+  function startStage(s) {
+    Snd.init();
+    const pointer = S.pointer;
+    S = newState();
+    S.pointer = pointer; S.pointer.down = false;
+    S.stage = s; S.cfg = stageCfg(s);
+    setMode('play');
+    showOverlay(null);
+    startWave();
+  }
+
+  function stageClear() {
+    setMode('clear');
+    S.pointer.down = false; S.stick = null; S.aimTouch = null;
+    const s = S.stage, first = !save.cleared.includes(s);
+    const money = stageMoney(s);
+    if (first) { save.cleared.push(s); save.sp += 1; }
+    save.unlocked = Math.max(save.unlocked, Math.min(STAGES, s + 1));
+    save.money += money;
+    writeSave();
+    $('clTitle').textContent = s === STAGES ? 'Bütün bölümler bitti!' : `Bölüm ${s} tamamlandı!`;
+    $('clReward').innerHTML = `+${money} para${first ? '<br>+1 yetenek puanı' : ''}`;
+    $('clTotals').textContent = `Toplam: ${save.money} para · ${save.sp} yetenek puanı`;
+    $('btnNext').style.display = s < STAGES ? '' : 'none';
+    Snd.win();
+    burst(S.px, S.py - 40, 40, '#d6a400');
+    setTimeout(() => { if (S.mode === 'clear') showOverlay('clear'); }, 1200);
   }
 
   // ---------- seviye atlama ----------
@@ -442,27 +738,45 @@
   function showOverlay(id) {
     for (const o of document.querySelectorAll('.overlay')) o.classList.toggle('show', o.id === id);
   }
-  function startGame() {
-    Snd.init();
-    const pointer = S.pointer;
-    S = newState();
-    S.pointer = pointer; S.pointer.down = false;
-    setMode('play');
-    showOverlay(null);
-    startWave();
+  function startGame() { Snd.init(); showStages(); }
+
+  function showStages() {
+    const p = S.pointer; S = newState(); S.pointer = p;
+    setMode('stages');
+    $('stTotals').textContent = `${save.money} para · ${save.sp} yetenek puanı`;
+    const grid = $('stGrid');
+    grid.innerHTML = '';
+    for (let s = 1; s <= STAGES; s++) {
+      const b = document.createElement('button');
+      const locked = s > save.unlocked, done = save.cleared.includes(s);
+      b.className = 'stage' + (done ? ' done' : '') + (s >= 17 ? ' hard' : '');
+      b.disabled = locked;
+      b.innerHTML = `<span class="n">${s}</span><span class="st">${locked ? 'kilitli' : done ? '✓ geçildi' : s >= 17 ? 'çok zor' : 'oyna'}</span>`;
+      if (!locked) b.addEventListener('click', () => startStage(s));
+      grid.appendChild(b);
+    }
+    showOverlay('stages');
   }
   function pauseGame() { if (S.mode !== 'play') return; setMode('pause'); S.pointer.down = false; S.keyFire = false; S.keys = {}; S.stick = null; S.aimTouch = null; showOverlay('pause'); }
   function resumeGame() { if (S.mode !== 'pause') return; Snd.init(); setMode('play'); showOverlay(null); }
-  function toMenu() { const p = S.pointer; S = newState(); S.pointer = p; setMode('menu'); $('bestMenu').textContent = best; showOverlay('menu'); }
+  function toMenu() {
+    const p = S.pointer; S = newState(); S.pointer = p; setMode('menu');
+    $('menuTotals').textContent = `${save.money} para · ${save.sp} yetenek puanı · ${save.cleared.length}/${STAGES} bölüm`;
+    showOverlay('menu');
+  }
   function gameOver() {
     setMode('over');
-    S.pointer.down = false; S.stick = null; S.aimTouch = null;
-    const isBest = S.rp > best;
-    if (isBest) { best = S.rp; localStorage.setItem('sm_best', String(best)); }
+    S.pointer.down = false; S.stick = null; S.aimTouch = null; S.quiz = null;
+    // bölüm ilerlemesine göre para: geçilen dalga oranında
+    const cleared = Math.max(0, S.wave - 1);
+    const money = Math.floor(stageMoney(S.stage) * cleared / WAVES);
+    save.money += money;
+    writeSave();
+    $('ovStage').textContent = S.stage;
     $('ovWave').textContent = S.wave;
     $('ovLevel').textContent = S.level;
-    $('ovRp').textContent = S.rp;
-    $('ovBest').textContent = isBest ? 'Yeni rekor!' : `En iyi: ${best} RP`;
+    $('ovRp').textContent = `+${money}`;
+    $('ovBest').textContent = `Toplam: ${save.money} para`;
     setTimeout(() => { if (S.mode === 'over') showOverlay('over'); }, 900);
   }
 
@@ -493,19 +807,24 @@
 
     // dalga akışı
     if (S.waveActive) {
-      if (S.spawnQueue.length) {
+      if (S.bossPending) {
+        S.spawnT -= dt;
+        if (S.spawnT <= 0) { spawnBoss(S.bossPending); S.bossPending = null; }
+      } else if (S.spawnQueue.length) {
         S.spawnT -= dt;
         if (S.spawnT <= 0) {
           spawnEnemy(S.spawnQueue.shift());
-          S.spawnT = Math.max(0.7, 2.1 - S.wave * 0.1);
+          S.spawnT = S.cfg.gap * Math.max(0.6, 1.15 - S.wave * 0.05);
         }
       } else if (S.enemies.length === 0) {
         S.waveActive = false;
+        S.bullets.length = 0;
+        if (S.wave >= WAVES) { stageClear(); return; }
         S.nextWaveT = 2.2;
-        const bonus = S.wave * 10, heal = Math.min(15, S.maxHp - S.hp);
+        const bonus = S.wave * 10, heal = Math.min(isBossWave(S.wave) ? 30 : 10, S.maxHp - S.hp);
         S.rp += bonus; S.rpPop = 1;
         S.hp += heal;
-        S.banner = { text: 'Sayfa temiz!', sub: `+${bonus} RP${heal > 0 ? ` · +${heal} can` : ''}`, t: 0, life: 2.0 };
+        S.banner = { text: isBossWave(S.wave) ? 'Boss silindi!' : 'Dalga temiz!', sub: `+${bonus} RP${heal > 0 ? ` · +${heal} can` : ''}`, t: 0, life: 2.0 };
         Snd.wave();
       }
     } else if (S.nextWaveT > 0) {
@@ -515,6 +834,8 @@
 
     updateShots(dt);
     updateEnemies(dt);
+    if (S.mode !== 'play') return;
+    updateBullets(dt);
     updateOrbs(dt);
   }
 
@@ -570,6 +891,12 @@
       e.flash = Math.max(0, e.flash - dt * 5);
       if (e.markT > 0) { e.markT -= dt; if (e.markT <= 0) { e.markT = 0; e.markMul = 1; } }
       if (e.write < 1) { e.write = Math.min(1, e.write + dt * 2.2); continue; }
+      if (e.boss) {
+        updateBoss(e, dt);
+        if (S.mode !== 'play') return;
+        if (e.dashState === 1) { e.vx *= 0.8; e.vy *= 0.8; continue; }       // atılmadan önce titrer
+        if (e.dashState === 2) { e.vx = Math.cos(e.dashDir) * 430; e.vy = Math.sin(e.dashDir) * 430; continue; }
+      }
       const dx = cx - e.x, dy = cy - e.y, d = Math.hypot(dx, dy) || 1;
       e.wob += dt * 2.2;
       const nx = -dy / d, ny = dx / d, w = Math.sin(e.wob) * 0.45;
@@ -587,18 +914,21 @@
         const dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy) || 1;
         const min = a.r + b.r + 8;
         if (d < min) {
-          const push = (min - d) * 0.5;
-          a.x -= dx / d * push; a.y -= dy / d * push;
-          b.x += dx / d * push; b.y += dy / d * push;
+          // bosslar ağırdır: küçük sayıları iter ama kendisi pek kımıldamaz
+          const wa = a.boss && !b.boss ? 0.1 : (b.boss && !a.boss ? 0.9 : 0.5);
+          const push = min - d;
+          a.x -= dx / d * push * wa; a.y -= dy / d * push * wa;
+          b.x += dx / d * push * (1 - wa); b.y += dy / d * push * (1 - wa);
         }
       }
     }
     for (const e of es) {
       if (e.dead || e.write < 1) continue;
       e.x += e.vx * dt; e.y += e.vy * dt;
-      e.x = clamp(e.x, 40, W - 20);
-      e.y = clamp(e.y, PLAY_TOP + 20, PLAY_BOTTOM - 35);
-      if (Math.hypot(cx - e.x, cy - e.y) < e.r + 26) hurtPlayer(e);
+      const mx = e.boss ? e.r * 0.8 : 0;
+      e.x = clamp(e.x, 40 + mx, W - 20 - mx);
+      e.y = clamp(e.y, PLAY_TOP + 20 + mx * 0.6, PLAY_BOTTOM - 35 - mx * 0.6);
+      if (Math.hypot(cx - e.x, cy - e.y) < (e.boss ? e.r * 0.85 : e.r) + 26) hurtPlayer(e);
       if (S.mode !== 'play') break;
     }
     S.enemies = S.enemies.filter(e => !e.dead);
@@ -659,6 +989,7 @@
   function drawEnemies(boil) {
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     for (const e of S.enemies) {
+      if (e.boss) { drawBoss(e, boil); continue; }
       ctx.save();
       ctx.translate(e.x, e.y);
       ctx.fillStyle = 'rgba(0,0,0,0.07)';
@@ -688,6 +1019,156 @@
       }
       ctx.restore();
     }
+  }
+
+  function rrect(x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y); ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r); ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h); ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r); ctx.quadraticCurveTo(x, y, x + r, y); ctx.closePath();
+  }
+
+  // Silgi boss: pembe gövde + kağıt kılıf; sayı kılıfın üstünde yazar. Aksesuar tipe göre.
+  function drawBoss(e, boil) {
+    const B = BOSS_TYPES[e.boss], sz = e.size;
+    const w = 118 * sz * (B.wide || 1), h = 72 * sz;
+    ctx.save();
+    ctx.translate(e.x, e.y);
+    ctx.fillStyle = 'rgba(0,0,0,0.1)';
+    ctx.beginPath(); ctx.ellipse(6, h * 0.62, w * 0.5, 10 * sz, 0, 0, Math.PI * 2); ctx.fill();
+    if (e.dashState === 1) ctx.translate(rand(-3, 3), rand(-3, 3));
+    if (e.write < 1) { const k = Math.max(0.01, easeOutBack(e.write)); ctx.scale(k, k); }
+    ctx.globalAlpha = e.ghostA;
+    ctx.rotate(Math.sin(e.t * 5) * 0.035 + (e.dashState === 2 ? Math.cos(e.dashDir) * 0.15 : 0));
+    const sc = 1 + e.pop * 0.12; ctx.scale(sc, sc);
+    const flash = e.flash > 0.5;
+    ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    // gövde
+    rrect(-w / 2, -h / 2, w, h, 16 * sz);
+    ctx.fillStyle = flash ? '#ff8f8f' : B.body; ctx.fill();
+    ctx.strokeStyle = INK; ctx.lineWidth = 3.5; ctx.stroke();
+    if (e.boss === 'hayalet') {
+      ctx.fillStyle = B.body;
+      for (let k = 0; k < 4; k++) { ctx.beginPath(); ctx.arc(-w / 2 + w * (k + 0.5) / 4, h / 2, w / 9, 0, Math.PI); ctx.fill(); ctx.stroke(); }
+    }
+    // kağıt kılıf (sağda)
+    const sx0 = -w * 0.08, sw = w / 2 - sx0 + 5;
+    ctx.fillStyle = B.sleeve;
+    ctx.fillRect(sx0, -h / 2 - 5, sw, h + 10);
+    ctx.strokeRect(sx0, -h / 2 - 5, sw, h + 10);
+    ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(sx0 + 6, -h / 2 + 2); ctx.lineTo(sx0 + sw - 6, -h / 2 + 2); ctx.stroke();
+    if (e.boss === 'zombi') {
+      ctx.strokeStyle = '#2b2b2b'; ctx.lineWidth = 2.5;
+      for (let k = 0; k < 3; k++) { const yy = -h * 0.3 + k * h * 0.3; ctx.beginPath(); ctx.moveTo(sx0 - 8, yy - 5); ctx.lineTo(sx0 + 8, yy + 5); ctx.moveTo(sx0 - 8, yy + 5); ctx.lineTo(sx0 + 8, yy - 5); ctx.stroke(); }
+    }
+    // sayı (kılıfa sığacak boyutta)
+    const txt = fmt(e.value);
+    const fs = Math.min(36 * sz, (sw - 12) * 1.75 / Math.max(2, txt.length));
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.font = `${fs}px ${NUM_FONT}`;
+    ctx.lineWidth = 5; ctx.strokeStyle = INK; ctx.strokeText(txt, sx0 + sw / 2, 2);
+    ctx.fillStyle = flash ? '#ffd633' : '#fff'; ctx.fillText(txt, sx0 + sw / 2, 2);
+    // yüz (pembe kısımda)
+    const fx = (-w / 2 + sx0) / 2, look = Math.atan2(S.py - 40 - e.y, S.px - e.x);
+    const lx = Math.cos(look) * 3, ly = Math.sin(look) * 3;
+    const eyeR = 8 * sz;
+    for (const o of [-1, 1]) {
+      const ex = fx + o * 11 * sz, ey = -h * 0.12;
+      ctx.fillStyle = '#fff'; ctx.strokeStyle = INK; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(ex, ey, eyeR, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      if (e.boss === 'zombi' && o === 1) {
+        ctx.beginPath(); ctx.moveTo(ex - 4, ey - 4); ctx.lineTo(ex + 4, ey + 4); ctx.moveTo(ex + 4, ey - 4); ctx.lineTo(ex - 4, ey + 4); ctx.stroke();
+      } else {
+        ctx.fillStyle = e.boss === 'dev' ? RED : INK;
+        ctx.beginPath(); ctx.arc(ex + lx, ey + ly, eyeR * 0.45, 0, Math.PI * 2); ctx.fill();
+      }
+      // kızgın kaşlar
+      ctx.strokeStyle = INK; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.moveTo(ex - o * eyeR * 0.7, ey - eyeR + 1); ctx.lineTo(ex + o * eyeR, ey - eyeR - 7); ctx.stroke();
+    }
+    // ağız
+    ctx.strokeStyle = INK; ctx.lineWidth = 3;
+    ctx.beginPath();
+    const my = h * 0.22;
+    if (e.flash > 0.3) { ctx.ellipse(fx, my, 7 * sz, 6 * sz, 0, 0, Math.PI * 2); }
+    else { ctx.moveTo(fx - 12 * sz, my); for (let k = 1; k <= 4; k++) ctx.lineTo(fx - 12 * sz + k * 6 * sz, my + (k % 2 ? -4 : 0) * sz); }
+    ctx.stroke();
+    if (e.boss === 'sisko') {
+      ctx.fillStyle = 'rgba(224,64,122,0.35)';
+      for (const o of [-1, 1]) { ctx.beginPath(); ctx.arc(fx + o * 22 * sz, h * 0.08, 7 * sz, 0, Math.PI * 2); ctx.fill(); }
+    }
+    // aksesuarlar
+    const top = -h / 2;
+    ctx.strokeStyle = INK; ctx.lineWidth = 3;
+    if (e.boss === 'sapkali') {
+      ctx.fillStyle = '#1f1d1b';
+      ctx.fillRect(fx - 26 * sz, top - 6, 52 * sz, 8);
+      ctx.fillRect(fx - 17 * sz, top - 46 * sz, 34 * sz, 42 * sz);
+      ctx.fillStyle = '#e0407a'; ctx.fillRect(fx - 17 * sz, top - 16 * sz, 34 * sz, 7 * sz);
+    } else if (e.boss === 'ogretmen') {
+      for (const o of [-1, 1]) { ctx.beginPath(); ctx.arc(fx + o * 11 * sz, -h * 0.12, eyeR + 4, 0, Math.PI * 2); ctx.stroke(); }
+      ctx.beginPath(); ctx.moveTo(fx - 3, -h * 0.12); ctx.lineTo(fx + 3, -h * 0.12); ctx.stroke();
+      ctx.fillStyle = '#8a8580'; ctx.beginPath(); ctx.arc(fx, top - 12 * sz, 13 * sz, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    } else if (e.boss === 'ninja') {
+      ctx.fillStyle = RED; ctx.fillRect(-w / 2 + 2, -h * 0.34, sx0 + w / 2 - 2, 9 * sz);
+      ctx.beginPath(); ctx.moveTo(-w / 2, -h * 0.3); ctx.lineTo(-w / 2 - 26, -h * 0.42 + Math.sin(e.t * 9) * 6); ctx.lineTo(-w / 2 - 22, -h * 0.2 + Math.sin(e.t * 9 + 1) * 6); ctx.closePath(); ctx.fill();
+    } else if (e.boss === 'kosucu') {
+      ctx.fillStyle = '#ffd633'; ctx.fillRect(-w / 2 + 2, -h * 0.4, sx0 + w / 2 - 2, 8 * sz);
+      if (Math.hypot(e.vx, e.vy) > 60) {
+        ctx.strokeStyle = 'rgba(31,29,27,0.4)';
+        const a = Math.atan2(e.vy, e.vx);
+        for (let k = -1; k <= 1; k++) { ctx.beginPath(); ctx.moveTo(-Math.cos(a) * w * 0.6 + k * 12, -Math.sin(a) * w * 0.6 + k * 14); ctx.lineTo(-Math.cos(a) * w * 0.95 + k * 12, -Math.sin(a) * w * 0.95 + k * 14); ctx.stroke(); }
+      }
+    } else if (e.boss === 'kral' || e.boss === 'dev') {
+      ctx.fillStyle = '#f2c230';
+      const cw = 46 * sz, cx0 = fx - cw / 2, cy0 = top - 4;
+      ctx.beginPath(); ctx.moveTo(cx0, cy0); ctx.lineTo(cx0, cy0 - 22 * sz);
+      for (let k = 1; k <= 4; k++) ctx.lineTo(cx0 + cw * k / 4 - cw / 8, cy0 - (k % 2 ? 10 : 24) * sz), ctx.lineTo(cx0 + cw * k / 4, cy0 - 22 * sz);
+      ctx.lineTo(cx0 + cw, cy0); ctx.closePath(); ctx.fill(); ctx.stroke();
+    } else if (e.boss === 'ikiz') {
+      ctx.fillStyle = e.v0 > 0 ? '#e0407a' : '#3a6fd1';
+      for (const o of [-1, 1]) { ctx.beginPath(); ctx.moveTo(fx, top - 4); ctx.lineTo(fx + o * 18, top - 16); ctx.lineTo(fx + o * 18, top + 6); ctx.closePath(); ctx.fill(); ctx.stroke(); }
+    }
+    ctx.restore();
+    // atılma uyarısı: kırmızı kesik çizgi
+    if (e.dashState === 1) {
+      ctx.save();
+      ctx.strokeStyle = 'rgba(212,58,47,0.6)'; ctx.lineWidth = 4; ctx.setLineDash([10, 10]);
+      ctx.beginPath(); ctx.moveTo(e.x, e.y); ctx.lineTo(e.x + Math.cos(e.dashDir) * 260, e.y + Math.sin(e.dashDir) * 260); ctx.stroke();
+      ctx.restore();
+    }
+    if (e.markT > 0) {
+      ctx.save(); ctx.translate(e.x + w * 0.45, e.y - h * 0.6);
+      ctx.fillStyle = PAPER; ctx.strokeStyle = MARK; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(0, 0, 18, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.beginPath(); ctx.arc(0, 0, 22, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * (e.markT / MARK_TIME)); ctx.stroke();
+      ctx.font = `17px ${NUM_FONT}`; ctx.fillStyle = MARK; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('×' + e.markMul, 0, 1);
+      ctx.restore();
+    }
+  }
+
+  function drawBullets() {
+    for (const b of S.bullets) {
+      ctx.save(); ctx.translate(b.x, b.y); ctx.rotate(b.rot);
+      ctx.fillStyle = '#e8a7b5'; ctx.strokeStyle = INK; ctx.lineWidth = 2;
+      ctx.fillRect(-8, -6, 16, 12); ctx.strokeRect(-8, -6, 16, 12);
+      ctx.restore();
+    }
+  }
+
+  function drawBossBar() {
+    const bosses = S.enemies.filter(e => e.boss);
+    if (!bosses.length) return;
+    const cur = bosses.reduce((a, e) => a + Math.abs(e.value), 0), max = bosses.reduce((a, e) => a + Math.abs(e.v0), 0);
+    const x = 70, y = 142, w = W - 140;
+    drawBar(x, y, w, 16, cur / max, '#e0407a');
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.font = `18px ${NUM_FONT}`; ctx.lineWidth = 5; ctx.strokeStyle = PAPER; ctx.lineJoin = 'round';
+    const label = `${BOSS_TYPES[bosses[0].boss].name} · ${cur}`;
+    ctx.strokeText(label, W / 2, y + 9); ctx.fillStyle = INK; ctx.fillText(label, W / 2, y + 9);
   }
 
   function drawOrbs() {
@@ -901,20 +1382,13 @@
     drawBar(24, 60, 190, 18, hpFrac, hpFrac < 0.3 ? '#e0453a' : '#e86b5c');
     ctx.font = `17px ${UI_FONT}`; ctx.fillStyle = INK; ctx.textAlign = 'center';
     ctx.fillText(`${Math.ceil(S.hp)} / ${S.maxHp}`, 24 + 95, 75);
-    // sayfa + çetele
+    // bölüm + dalga
     ctx.textAlign = 'right';
-    drawText(`Sayfa ${Math.max(1, S.wave)}`, W - 24, 46, 30, INK, UI_FONT, boil + 9);
-    const total = S.waveTotal, groups = Math.ceil(total / 5);
-    const gx = W - 24 - groups * 44 + 8;
-    ctx.lineCap = 'round'; ctx.lineWidth = 2.5;
-    for (let i = 0; i < total; i++) {
-      const g = Math.floor(i / 5), k = i % 5, x0 = gx + g * 44;
-      ctx.strokeStyle = i < S.resolved ? INK : 'rgba(31,29,27,0.2)';
-      ctx.beginPath();
-      if (k < 4) { ctx.moveTo(x0 + k * 7, 58); ctx.lineTo(x0 + k * 7 + noise(i) * 1.5, 80); }
-      else { ctx.moveTo(x0 - 5, 77); ctx.lineTo(x0 + 27, 62); }
-      ctx.stroke();
-    }
+    drawText(`Bölüm ${S.stage}`, W - 24, 46, 30, S.stage >= 17 ? RED : INK, UI_FONT, boil + 9);
+    const left = Math.max(0, S.waveTotal - S.resolved);
+    const boss = isBossWave(S.wave);
+    ctx.font = `20px ${UI_FONT}`; ctx.fillStyle = boss ? '#e0407a' : INK;
+    ctx.fillText(`Dalga ${Math.max(1, S.wave)}/${WAVES}${boss ? ' · BOSS' : ` · ${left} kaldı`}`, W - 24, 76);
     // seviye + XP barı
     ctx.textAlign = 'left';
     drawText(`Sv ${S.level}`, 24, 111, 26, '#7a4bd8', NUM_FONT, boil + 3);
@@ -984,7 +1458,7 @@
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.font = `58px ${NUM_FONT}`;
     const tw = ctx.measureText(b.text).width;
-    ctx.fillStyle = 'rgba(255,214,51,0.55)';
+    ctx.fillStyle = b.boss ? 'rgba(224,64,122,0.45)' : 'rgba(255,214,51,0.55)';
     ctx.fillRect(-tw / 2 - 16, -6, tw + 32, 32);
     ctx.fillStyle = INK; ctx.fillText(b.text, 0, 0);
     if (b.sub) {
@@ -1021,14 +1495,15 @@
     drawAim();
     drawOrbs();
     drawEnemies(boil);
-    if (S.mode !== 'menu') drawPlayer(boil);
+    if (S.mode !== 'menu' && S.mode !== 'stages') drawPlayer(boil);
     drawShots();
+    drawBullets();
     drawParts();
     drawPopups();
     drawBanner();
     ctx.setTransform(sx, 0, 0, sy, 0, 0);
     drawTouchControls();
-    if (S.mode !== 'menu') drawHUD(boil);
+    if (S.mode !== 'menu' && S.mode !== 'stages') { drawHUD(boil); drawBossBar(); }
     drawCards(boil);
     if (S.hurt > 0) {
       ctx.fillStyle = `rgba(212,58,47,${S.hurt * 0.18})`;
@@ -1334,9 +1809,12 @@
       clock += dt;
       introT += dt;
       if (introT >= INTRO_LEN) endIntro();
+    } else if (S.mode === 'quiz') {
+      clock += dt;
+      updateQuiz(dt);
     } else if (S.mode !== 'pause') {
       clock += dt;
-      if (S.mode === 'play') update(dt);
+      if (S.mode === 'play' && !window.__smFreeze) update(dt);
       updateFx(dt);
     }
     if (canvas.width < 2 || canvas.height < 2) { resize(); return; }
@@ -1429,6 +1907,14 @@
       if (e.key === 'Escape' || e.key === 'Enter' || e.code === 'Space') { e.preventDefault(); endIntro(); }
       return;
     }
+    if (S.mode === 'quiz') {
+      if (/^[0-9]$/.test(e.key)) quizKey(e.key);
+      else if (e.key === 'Backspace') quizKey('back');
+      else if (e.key === '-' || e.code === 'NumpadSubtract') quizKey('-');
+      else if (e.key === 'Enter' || e.code === 'NumpadEnter') quizKey('ok');
+      e.preventDefault();
+      return;
+    }
     if (S.mode === 'levelup') {
       if (e.key >= '1' && e.key <= '4') chooseUpgrade(+e.key - 1);
       return;
@@ -1440,7 +1926,8 @@
       else if (e.code === 'Space') { S.keyFire = true; e.preventDefault(); }
       else if (e.key === 'Escape' || e.code === 'KeyP') pauseGame();
     } else if (S.mode === 'pause' && (e.key === 'Escape' || e.code === 'KeyP')) resumeGame();
-    else if ((S.mode === 'menu' || (S.mode === 'over' && $('over').classList.contains('show'))) && (e.key === 'Enter' || e.code === 'Space')) { e.preventDefault(); startGame(); }
+    else if (S.mode === 'menu' && (e.key === 'Enter' || e.code === 'Space')) { e.preventDefault(); startGame(); }
+    else if (S.mode === 'over' && $('over').classList.contains('show') && (e.key === 'Enter' || e.code === 'Space')) { e.preventDefault(); startStage(S.stage); }
   });
   window.addEventListener('keyup', e => {
     if (MOVE_KEYS[e.code]) S.keys[MOVE_KEYS[e.code]] = false;
@@ -1455,7 +1942,12 @@
   btnMute.addEventListener('click', () => { Snd.muted = !Snd.muted; localStorage.setItem('sm_muted', Snd.muted ? '1' : '0'); syncMute(); });
   $('btnPause').addEventListener('click', pauseGame);
   $('btnStart').addEventListener('click', startGame);
-  $('btnRetry').addEventListener('click', startGame);
+  $('btnRetry').addEventListener('click', () => startStage(S.stage));
+  $('btnOverStages').addEventListener('click', startGame);
+  $('btnNext').addEventListener('click', () => startStage(Math.min(STAGES, S.stage + 1)));
+  $('btnClearStages').addEventListener('click', startGame);
+  $('btnStagesBack').addEventListener('click', toMenu);
+  for (const b of document.querySelectorAll('#quiz [data-k]')) b.addEventListener('click', () => quizKey(b.dataset.k));
   $('btnResume').addEventListener('click', resumeGame);
   $('btnQuit').addEventListener('click', toMenu);
   $('btnMenu').addEventListener('click', toMenu);
@@ -1464,12 +1956,11 @@
   // ---------- başlat ----------
   if (/[?&]debug\b/.test(location.search)) {
     window.__sm = {
-      get S() { return S; }, render, update, updateFx, spawnEnemy, startGame, fire, gainXP, chooseUpgrade,
+      get S() { return S; }, get save() { return save; }, render, update, updateFx, spawnEnemy, spawnBoss, startGame, startStage, showStages, fire, gainXP, chooseUpgrade, openQuiz, quizKey, resolveQuiz, makeQuestion, stageCfg, bossHp, BOSS_TYPES, bossFor, wPow, xpNeed,
       seekIntro(t) { if (S.mode !== 'intro') startIntro(); introT = t; }, INTRO_LEN,
     };
   }
   syncMute();
-  $('bestMenu').textContent = best;
   resize();
   if (/[?&](nointro|debug)\b/.test(location.search)) toMenu(); else startIntro();
   requestAnimationFrame(frame);
