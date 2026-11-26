@@ -28,11 +28,11 @@
       <h1>Sticky<br>Math</h1>
       <p class="tag">Sayılar saldırıyor. Onları <b>sıfıra</b> indir!</p>
       <ul class="howto">
-        <li><b>Tıkla / dokun</b> → seçili işlemi fırlat</li>
-        <li><b>1–5</b> ya da kartlara dokun → işlem seç</li>
-        <li>Sayı <b>0</b> olunca silinir</li>
-        <li>Zıt sayıları çarpıştır: <b>7</b> ve <b>−7</b> → 0</li>
-        <li>Tam kök, tam bölme = <b>kombo</b></li>
+        <li><b>Yön tuşları / WASD</b> → yürü<br><small>Telefonda: ekranın sol yarısı</small></li>
+        <li><b>Fare</b> → nişan al, tıkla ve ateş et<br><small>Telefonda: ekranın sağ yarısı</small></li>
+        <li><b>1–4</b> ya da kartlar → silah: <b>− + ÷ ×</b></li>
+        <li>Sayı <b>0</b> olunca silinir, <b>XP</b> bırakır</li>
+        <li>Seviye atla, silahlarını <b>geliştir</b></li>
       </ul>
       <button class="big" id="btnStart">Oyna</button>
       <p class="best">En iyi: <span id="bestMenu">0</span> RP</p>
@@ -45,10 +45,16 @@
       <button id="btnQuit">Ana menü</button>
     </div>
 
+    <div id="levelup" class="overlay">
+      <h2 id="luTitle">Seviye 2!</h2>
+      <p class="sub">Bir silahını geliştir</p>
+      <div id="luChoices" class="choices"></div>
+    </div>
+
     <div id="over" class="overlay">
       <a class="home" href="https://dorukplays.com">← dorukplays.com</a>
       <h2>Defter doldu!</h2>
-      <p class="sub">Sayfa <span id="ovWave">1</span></p>
+      <p class="sub">Sayfa <span id="ovWave">1</span> · Seviye <span id="ovLevel">1</span></p>
       <p class="score"><span id="ovRp">0</span> RP</p>
       <p class="sub" id="ovBest"></p>
       <button class="big" id="btnRetry">Tekrar</button>
