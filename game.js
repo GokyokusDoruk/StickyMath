@@ -294,6 +294,7 @@
       if (i > 0 && Math.random() < special) {
         const pool = [];
         if (s >= 2 || w >= 6) pool.push('coffee');
+        if (s >= 2) pool.push('flip');
         if (s >= 3 || (s === 2 && w >= 6)) pool.push('abs');
         if (s >= 4 || (s === 3 && w >= 6)) pool.push('pow');
         if ((s >= 5 || (s === 4 && w >= 6)) && healers < 1 + Math.floor(s / 8)) pool.push('heal');
@@ -369,6 +370,7 @@
     return e;
   }
 
+  const FLIP_TIME = 2;                  // ± değişken sayı: 2 sn artı, 2 sn eksi
   const POW_FORMS = [[2, 2], [2, 3], [3, 2]];
   const POW_FORMS_HARD = [[2, 4], [3, 3], [4, 2], [5, 2]];
   const KIND_HINTS = {
@@ -377,6 +379,7 @@
     pow: ['Üslü sayı', 'Vurunca parçalara ayrılır'],
     heal: ['Şifacı +1', '3 sn\'de bir yanındakileri büyütür'],
     coffee: ['Kahve lekesi', 'Leke kuruyunca sayı görünür'],
+    flip: ['± Değişken sayı', '2 sn artı, 2 sn eksi'],
   };
 
   // Kalabalığın ortası: rastgele bir düşmanın yanı
@@ -402,6 +405,7 @@
       e = spawnEnemy(sg * b ** x, null, { base: b, exp: x });
     } else if (q.kind === 'heal') e = spawnEnemy(q.v, null, { heal: true, healT: 3, healPulse: 0, spd: 0 });
     else if (q.kind === 'coffee') e = spawnEnemy(q.v, null, { coffee: 10 });
+    else if (q.kind === 'flip') e = spawnEnemy(Math.abs(q.v), null, { flip: true, flipT: FLIP_TIME, flipAnim: 0 });
     else e = spawnEnemy(q.v);
     if (e.heal) e.spd = Math.min(45, (16 + S.wave) * S.cfg.spd);
     if (e.trap) e.spd = 14;
@@ -1404,6 +1408,18 @@
       e.flash = Math.max(0, e.flash - dt * 5);
       if (e.write < 1) { e.write = Math.min(1, e.write + dt * 2.2); continue; }
       if (e.coffee > 0) e.coffee = Math.max(0, e.coffee - dt);
+      if (e.flip) {
+        e.flipAnim = Math.max(0, e.flipAnim - dt * 4);
+        e.flipT -= dt;
+        if (e.flipT <= 0) {
+          e.flipT += FLIP_TIME;
+          if (e.value !== 0) {
+            e.prev = e.value; e.value = -e.value; e.flipAnim = 1;
+            e.r = enemyRadius(e);
+            if (onScreen(e)) Snd.tone(e.value > 0 ? 700 : 420, 0.06, 'sine', 0.025, e.value > 0 ? 200 : -150);
+          }
+        }
+      }
       if (e.heal) {
         e.healPulse = Math.max(0, e.healPulse - dt * 1.5);
         e.healT -= dt;
@@ -1547,6 +1563,18 @@
       ctx.rotate(noise(e.id * 13 + boil) * 0.04 + Math.sin(e.wob) * 0.07);
       let sc = (1 + e.pop * 0.45) * (e.shard ? 0.75 : 1);
       if (e.write < 1) sc *= Math.max(0.01, easeOutBack(e.write));
+      if (e.flip) {
+        // işaret değişirken kart gibi döner; kalan süre halkası
+        const pos = e.value > 0, col = pos ? '#c0392b' : '#2f6fd1';
+        ctx.strokeStyle = col; ctx.globalAlpha = 0.18; ctx.lineWidth = 6;
+        ctx.beginPath(); ctx.arc(0, 0, e.r + 4, 0, Math.PI * 2); ctx.stroke();
+        ctx.globalAlpha = e.flipT < 0.6 && Math.floor(clock * 12) % 2 ? 0.4 : 0.85; ctx.lineWidth = 4;
+        ctx.beginPath(); ctx.arc(0, 0, e.r + 4, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * (e.flipT / FLIP_TIME)); ctx.stroke();
+        ctx.globalAlpha = 1;
+        ctx.font = `18px ${NUM_FONT}`; ctx.fillStyle = col;
+        ctx.fillText('±', -e.r - 2, -e.r * 0.7);
+        ctx.scale(Math.max(0.08, Math.abs(Math.cos(e.flipAnim * Math.PI))), 1);
+      }
       ctx.scale(sc, sc);
       const stained = e.coffee > 0;
       if (e.change > 0 && !stained) {

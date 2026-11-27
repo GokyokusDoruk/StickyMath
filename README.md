@@ -24,6 +24,7 @@ Tarayıcıda oynanan matematik aksiyon oyunu. Sayılar defter sayfasında çöp 
 - **Mutlak değer** (`|−6|`): iki dikey çizgi zırhtır. Her vuruş bir parça kırar; zırh bitince sayı `|−6| = 6` olur.
 - **Üslü sayı** (`2³`, `3²`): ilk vuruşta açılır ve değeri kadar küçük sayıya bölünür (en fazla 9 parça, toplam korunur).
 - **Şifacı** (`+1` rozeti): 3 saniyede bir aurasındaki diğer sayıları 1 büyütür. Oyuncudan uzak durur.
+- **± Değişken sayı**: 2 saniye artı, 2 saniye eksi olur (`+5` → `−5` → `+5`…). Halka işaret değişimine kalan süreyi gösterir; doğru silahı o anki işarete göre seç. 2. bölümden itibaren çıkar.
 - **Kahve lekeli**: leke 10 saniyede yavaş yavaş kurur; kuruyana kadar sayı görünmez ama vurulabilir.
 
 Yeni türler bölümler ilerledikçe açılır (kahve 1. bölümün sonundan, şifacı 4.–5. bölümden itibaren).
