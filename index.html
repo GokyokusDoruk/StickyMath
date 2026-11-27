@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Gochi+Hand&family=Permanent+Marker&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=3">
+  <link rel="stylesheet" href="style.css?v=4">
 </head>
 <body>
   <div id="wrap" data-mode="menu">
@@ -33,8 +33,13 @@
         <li><b>1–4</b> ya da kartlar → silah: <b>− + ÷ ×</b></li>
         <li>Sayı <b>0</b> olunca silinir, <b>XP</b> bırakır</li>
         <li>Seviye atla, silahlarını <b>geliştir</b></li>
+        <li>Düşen <b>eşyaları</b> 10 saniye içinde topla</li>
       </ul>
       <button class="big" id="btnStart">Oyna</button>
+      <div class="row">
+        <button id="btnMenuBag">Çanta</button>
+        <button id="btnMenuShop">Mağaza</button>
+      </div>
       <p class="best" id="menuTotals"></p>
     </div>
 
@@ -56,7 +61,34 @@
       <h2>Bölüm seç</h2>
       <p class="best" id="stTotals"></p>
       <div id="stGrid" class="stage-grid"></div>
-      <button id="btnStagesBack">Ana menü</button>
+      <div class="row">
+        <button id="btnStagesBag">Çanta</button>
+        <button id="btnStagesBack">Ana menü</button>
+      </div>
+    </div>
+
+    <div id="bag" class="overlay panel">
+      <h2>Çanta</h2>
+      <p class="best" id="bagTotals"></p>
+      <div id="bagEquip" class="equip"></div>
+      <div id="bagList" class="bag-list"></div>
+      <div class="row">
+        <button id="btnBagShop">Mağaza</button>
+        <button id="btnBagBack">Geri</button>
+      </div>
+      <div id="bagReveal" class="reveal"></div>
+    </div>
+
+    <div id="shop" class="overlay panel">
+      <h2>Mağaza</h2>
+      <p class="best" id="shopMoney"></p>
+      <p class="sub small">Her kutudan rastgele bir kalem, şapka ya da bot çıkar.</p>
+      <div id="shopList" class="shop-list"></div>
+      <div class="row">
+        <button id="btnShopBag">Çanta</button>
+        <button id="btnShopBack">Geri</button>
+      </div>
+      <div id="shopReveal" class="reveal"></div>
     </div>
 
     <div id="quiz" class="overlay">
@@ -82,8 +114,12 @@
       <h2 id="clTitle">Bölüm 1 tamamlandı!</h2>
       <p class="score reward" id="clReward"></p>
       <p class="sub" id="clTotals"></p>
+      <p class="sub small" id="clLoot"></p>
       <button class="big" id="btnNext">Sonraki bölüm</button>
-      <button id="btnClearStages">Bölümler</button>
+      <div class="row">
+        <button id="btnClearBag">Çanta</button>
+        <button id="btnClearStages">Bölümler</button>
+      </div>
     </div>
 
     <div id="over" class="overlay">
@@ -92,11 +128,15 @@
       <p class="sub">Bölüm <span id="ovStage">1</span> · Dalga <span id="ovWave">1</span>/10 · Seviye <span id="ovLevel">1</span></p>
       <p class="score"><span id="ovRp">0</span> para</p>
       <p class="sub" id="ovBest"></p>
+      <p class="sub small" id="ovLoot"></p>
       <button class="big" id="btnRetry">Tekrar</button>
-      <button id="btnOverStages">Bölümler</button>
-      <button id="btnMenu">Ana menü</button>
+      <div class="row">
+        <button id="btnOverBag">Çanta</button>
+        <button id="btnOverStages">Bölümler</button>
+        <button id="btnMenu">Ana menü</button>
+      </div>
     </div>
   </div>
-  <script src="game.js?v=3"></script>
+  <script src="game.js?v=4"></script>
 </body>
 </html>

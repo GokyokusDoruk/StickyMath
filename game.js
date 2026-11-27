@@ -103,7 +103,11 @@
 
   // ---------- kayıt ----------
   const SAVE_KEY = 'sm_save_v1';
-  const defaultSave = () => ({ unlocked: 1, cleared: [], sp: 0, money: 0 });
+  // inv: eşya anahtarı → adet; eq: kuşanılan eşyaların anahtarları
+  const defaultSave = () => ({
+    unlocked: 1, cleared: [], sp: 0, money: 0,
+    inv: { 'pen:kursun:0': 1 }, eq: { pen: 'pen:kursun:0', hat: null, boot: null },
+  });
   function loadSave() {
     try {
       const s = JSON.parse(localStorage.getItem(SAVE_KEY));
@@ -113,6 +117,145 @@
   }
   let save = loadSave();
   function writeSave() { try { localStorage.setItem(SAVE_KEY, JSON.stringify(save)); } catch (e) { /* depolama kapalı */ } }
+
+  // ---------- eşyalar ----------
+  const RARITIES = [
+    { n: 'Dandik', c: '#8a8580' }, { n: 'Sıradan', c: '#3b8f3b' }, { n: 'Sıradışı', c: '#2a6fdb' }, { n: 'Nadir', c: '#7a4bd8' },
+    { n: 'Epic', c: '#d9822b' }, { n: 'Legendary', c: '#d6a400' }, { n: 'Mythic', c: '#d43a2f' }, { n: 'Divine', c: '#e0407a' },
+  ];
+  const DROP_WEIGHTS = [20, 16, 12, 8, 4, 3, 2, 1];   // düşen eşyanın nadirlik ağırlıkları
+  const DROP_CHANCE = 0.08, MINION_DROP = 0.04;      // normal düşman / boss çağırdığı sayı (boss her zaman düşürür)
+  const DROP_LIFE = 10, DROP_FADE = 3;
+  // fire: atış hızı çarpanı; reload: ÷/× dolum süresi çarpanı; diğerleri dandik seviyedeki şans/oranlar
+  const PENS = {
+    ikili:    { n: 'İkili Küçük Kalem', color: '#e8a33d', dmg: 0.6, fire: 1.5, d: '%60 hasar, %50 daha hızlı ateş' },
+    dolma:    { n: 'Dolma Kalem', color: '#1d3d7a', reload: 1.2, root: 0.10, d: 'Rakibi 2 sn sabitler · ÷× dolumu %20 yavaş' },
+    tukenmez: { n: 'Tükenmez Kalem', color: '#2a6fdb', reload: 0.9, slow: 0.05, d: 'Rakibi yavaşlatır · ÷× dolumu %10 hızlı' },
+    kursun:   { n: 'Kurşun Kalem', color: '#e04b3f', d: 'Standart kalem' },
+    uclu05:   { n: 'Uçlu Kalem 0.5', color: '#6b6b72', shatter: 0.10, d: 'Kırılıp etrafa 4 mermi saçar' },
+    uclu07:   { n: 'Uçlu Kalem 0.7', color: '#3d3d44', pierce: true, d: 'Kalın mermi · öldürdüğü sayıyı delip geçer' },
+    keceli:   { n: 'Keçeli Kalem', color: '#2f9a6a', poison: 0.10, d: 'Zehirler: her saniye hasarın bir kısmı' },
+    fosforlu: { n: 'Fosforlu Kalem', color: '#e6c619', highlight: 0.10, d: 'İşaretlenen rakip daha fazla hasar alır' },
+    pastel:   { n: 'Pastel Boya', color: '#e88fb0', fire: 0.5, splash: 0.60, d: '%50 yavaş ateş · çevreye splash hasar' },
+  };
+  const PEN_KINDS = Object.keys(PENS);
+  const hatCrit = r => 0.03 + r * 0.03;     // dandik %3 … divine %24
+  const bootSpeed = r => 0.05 + r * 0.05;   // dandik +%5 … divine +%40
+
+  const parseKey = k => { const [type, kind, r] = k.split(':'); return { type, kind, r: +r }; };
+  const makeKey = (type, kind, r) => `${type}:${kind}:${r}`;
+  function itemName(k) {
+    const { type, kind, r } = parseKey(k);
+    return `${RARITIES[r].n} ${type === 'pen' ? PENS[kind].n : type === 'hat' ? 'Şapka' : 'Bot'}`;
+  }
+  const pct = x => `%${Math.round(x * 100)}`;
+  function itemDesc(k) {
+    const { type, kind, r } = parseKey(k);
+    if (type === 'hat') return `Kritik vuruş şansı ${pct(hatCrit(r))}`;
+    if (type === 'boot') return `Hareket hızı +${pct(bootSpeed(r))}`;
+    const P = PENS[kind], sc = 1 + 0.25 * r;
+    const parts = [`Hasar ${pct((P.dmg || 1) * (1 + 0.15 * r))}`];
+    if (P.root) parts.push(`sabitleme ${pct(P.root * sc)}`);
+    if (P.slow) parts.push(`yavaşlatma ${pct(P.slow * sc)}`);
+    if (P.shatter) parts.push(`kırılma ${pct(P.shatter * sc)}`);
+    if (P.poison) parts.push(`zehir ${pct(P.poison * sc)}/sn`);
+    if (P.highlight) parts.push(`işaretli rakip +${pct(P.highlight * (1 + 0.15 * r))} hasar`);
+    if (P.splash) parts.push(`splash ${pct(Math.min(1, P.splash * (1 + 0.1 * r)))}`);
+    return `${P.d} · ${parts.join(' · ')}`;
+  }
+  function pickWeighted(weights) {
+    let sum = weights.reduce((a, b) => a + b, 0), x = Math.random() * sum;
+    for (let i = 0; i < weights.length; i++) { x -= weights[i]; if (x < 0) return i; }
+    return weights.length - 1;
+  }
+  // Rastgele eşya: tip eşit (kalem/şapka/bot), kurşun kalem %30, diğer kalemler eşit.
+  function rollItem(weights = DROP_WEIGHTS) {
+    const r = pickWeighted(weights);
+    const t = Math.random();
+    if (t < 1 / 3) return makeKey('hat', '-', r);
+    if (t < 2 / 3) return makeKey('boot', '-', r);
+    const others = PEN_KINDS.filter(k => k !== 'kursun');
+    const kind = Math.random() < 0.3 ? 'kursun' : others[Math.floor(Math.random() * others.length)];
+    return makeKey('pen', kind, r);
+  }
+  function addItem(k, n = 1) { save.inv[k] = (save.inv[k] || 0) + n; }
+
+  // Kuşanılan eşyalardan oyuncunun bölüm boyunca kullanacağı değerler
+  function gearStats() {
+    const eq = save.eq || {};
+    const g = { dmg: 1, rate: 1, reload: 1, crit: 0, speed: 1, pen: 'kursun', root: 0, slow: 0, shatter: 0, pierce: false, poison: 0, highlight: 0, splash: 0 };
+    if (eq.pen && save.inv[eq.pen]) {
+      const { kind, r } = parseKey(eq.pen), P = PENS[kind], sc = 1 + 0.25 * r;
+      g.pen = kind;
+      g.dmg = (P.dmg || 1) * (1 + 0.15 * r);
+      g.rate = P.fire || 1;
+      g.reload = P.reload || 1;
+      g.root = (P.root || 0) * sc; g.slow = (P.slow || 0) * sc; g.shatter = (P.shatter || 0) * sc; g.poison = (P.poison || 0) * sc;
+      g.pierce = !!P.pierce;
+      g.highlight = (P.highlight || 0) * (1 + 0.15 * r);
+      g.splash = P.splash ? Math.min(1, P.splash * (1 + 0.1 * r)) : 0;
+    }
+    if (eq.hat && save.inv[eq.hat]) g.crit = hatCrit(parseKey(eq.hat).r);
+    if (eq.boot && save.inv[eq.boot]) g.speed = 1 + bootSpeed(parseKey(eq.boot).r);
+    return g;
+  }
+
+  // Mağaza kutuları: fiyat ve nadirlik ağırlıkları (dandik → divine)
+  const BOXES = [
+    { n: 'Kağıt Kutu', price: 60, w: [45, 30, 15, 7, 3, 0, 0, 0], c: '#c9b48a' },
+    { n: 'Kalem Kutusu', price: 200, w: [10, 25, 30, 20, 10, 4, 1, 0], c: '#2a6fdb' },
+    { n: 'Altın Kutu', price: 600, w: [0, 0, 20, 35, 25, 12, 6, 2], c: '#d6a400' },
+    { n: 'Elmas Kutu', price: 1500, w: [0, 0, 0, 20, 35, 25, 14, 6], c: '#e0407a' },
+  ];
+
+  // Eşya simgesi: kalem/şapka/bot, nadirlik renginde halka (hem oyunda hem çantada kullanılır)
+  function drawItemIcon(g, k, size, t = 0) {
+    const { type, kind, r } = parseKey(k);
+    const rc = r === 7 ? `hsl(${(t * 120) % 360},80%,55%)` : RARITIES[r].c;
+    const s = size / 2;
+    g.save();
+    g.translate(s, s);
+    g.fillStyle = rc;
+    g.globalAlpha = 0.2;
+    g.beginPath(); g.arc(0, 0, s * 0.95, 0, Math.PI * 2); g.fill();
+    g.globalAlpha = 1;
+    g.strokeStyle = rc; g.lineWidth = Math.max(2, size * 0.07);
+    g.beginPath(); g.arc(0, 0, s * 0.92, 0, Math.PI * 2); g.stroke();
+    g.lineJoin = 'round'; g.lineCap = 'round';
+    g.strokeStyle = '#1f1d1b'; g.lineWidth = Math.max(1.5, size * 0.04);
+    if (type === 'pen') {
+      const P = PENS[kind];
+      const drawPen = (ox, oy, len, wid) => {
+        g.save(); g.translate(ox, oy); g.rotate(-Math.PI / 4);
+        const L = len * s, Wd = wid * s;
+        if (kind === 'pastel') { g.fillStyle = P.color; g.beginPath(); g.roundRect ? g.roundRect(-L / 2, -Wd / 2, L * 0.8, Wd, Wd / 2) : g.rect(-L / 2, -Wd / 2, L * 0.8, Wd); g.fill(); g.stroke(); g.fillStyle = '#fff8'; g.fillRect(-L / 6, -Wd / 2, L / 4, Wd); }
+        else {
+          g.fillStyle = P.color; g.fillRect(-L / 2, -Wd / 2, L * 0.72, Wd); g.strokeRect(-L / 2, -Wd / 2, L * 0.72, Wd);
+          g.fillStyle = kind === 'dolma' ? '#d6a400' : kind === 'uclu05' || kind === 'uclu07' ? '#b8b8bf' : '#f1d2a6';
+          g.beginPath(); g.moveTo(L * 0.22, -Wd / 2); g.lineTo(L / 2, 0); g.lineTo(L * 0.22, Wd / 2); g.closePath(); g.fill(); g.stroke();
+          if (kind === 'keceli' || kind === 'fosforlu') { g.fillStyle = '#1f1d1b55'; g.fillRect(-L / 2, -Wd / 2, L * 0.18, Wd); }
+          if (kind === 'kursun') { g.fillStyle = '#f0a0b0'; g.fillRect(-L / 2 - Wd * 0.6, -Wd / 2, Wd * 0.6, Wd); g.strokeRect(-L / 2 - Wd * 0.6, -Wd / 2, Wd * 0.6, Wd); }
+        }
+        g.restore();
+      };
+      const wid = kind === 'uclu07' || kind === 'fosforlu' || kind === 'keceli' ? 0.34 : kind === 'uclu05' ? 0.2 : 0.26;
+      if (kind === 'ikili') { drawPen(-s * 0.18, -s * 0.12, 1.05, 0.2); drawPen(s * 0.18, s * 0.14, 1.05, 0.2); }
+      else drawPen(0, 0, 1.35, wid);
+    } else if (type === 'hat') {
+      g.fillStyle = rc;
+      g.beginPath(); g.ellipse(0, s * 0.3, s * 0.7, s * 0.16, 0, 0, Math.PI * 2); g.fill(); g.stroke();
+      g.beginPath(); g.moveTo(-s * 0.42, s * 0.3); g.lineTo(-s * 0.36, -s * 0.42); g.lineTo(s * 0.36, -s * 0.42); g.lineTo(s * 0.42, s * 0.3); g.closePath(); g.fill(); g.stroke();
+      g.fillStyle = '#1f1d1b'; g.fillRect(-s * 0.39, s * 0.06, s * 0.78, s * 0.1);
+    } else {
+      g.fillStyle = rc;
+      g.beginPath();
+      g.moveTo(-s * 0.32, -s * 0.5); g.lineTo(s * 0.08, -s * 0.5); g.lineTo(s * 0.1, s * 0.1);
+      g.lineTo(s * 0.55, s * 0.18); g.quadraticCurveTo(s * 0.68, s * 0.42, s * 0.5, s * 0.46);
+      g.lineTo(-s * 0.36, s * 0.46); g.closePath(); g.fill(); g.stroke();
+      g.beginPath(); g.moveTo(-s * 0.36, s * 0.3); g.lineTo(s * 0.58, s * 0.3); g.stroke();
+    }
+    g.restore();
+  }
 
   // ---------- ses ----------
   const Snd = {
@@ -171,6 +314,9 @@
     dash() { this.noise(0.25, 0.06, 600); this.tone(300, 0.2, 'sawtooth', 0.04, 300); },
     poof() { this.noise(0.2, 0.05, 2500); },
     win() { [523, 659, 784, 1047, 784, 1047].forEach((f, i) => this.tone(f, 0.18, 'triangle', 0.07, 0, i * 0.11)); },
+    drop() { this.tone(1200, 0.08, 'sine', 0.04, 400); this.tone(1600, 0.1, 'sine', 0.03, 0, 0.07); },
+    pickup(r) { const b = 600 + r * 80; [b, b * 1.25, b * 1.5].forEach((f, i) => this.tone(f, 0.1 + r * 0.02, 'triangle', 0.05, 0, i * 0.05)); },
+    coin() { this.tone(1320, 0.06, 'square', 0.03); this.tone(1760, 0.1, 'square', 0.03, 0, 0.06); },
   };
 
   // ---------- durum ----------
@@ -185,6 +331,7 @@
       wlv: [1, 1, 1, 1],
       ammo: [Infinity, Infinity, AMMO_CAP, AMMO_CAP], ammoCap: AMMO_CAP, ammoT: [0, 0, 0, 0],
       stage: 1, cfg: stageCfg(1), bullets: [], quiz: null,
+      gear: gearStats(), drops: [], loot: [],
       wave: 0, waveTotal: 0, resolved: 0,
       spawnQueue: [], spawnT: 0, waveActive: false, nextWaveT: 0, bossPending: null,
       banner: null,
@@ -375,45 +522,153 @@
       const a = Math.random() * Math.PI * 2, sp = rand(80, 200);
       S.orbs.push({ x: e.x, y: e.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, val: total / n, age: 0 });
     }
+    // eşya düşmesi: bir sayıdan en fazla bir eşya
+    const chance = e.boss ? 1 : e.minion ? MINION_DROP : DROP_CHANCE;
+    if (Math.random() < chance) {
+      S.drops.push({ key: rollItem(), x: clamp(e.x, 50, W - 40), y: clamp(e.y, PLAY_TOP + 40, PLAY_BOTTOM - 40), t: DROP_LIFE, age: 0 });
+      Snd.drop();
+    }
     Snd.kill();
   }
 
+  function updateDrops(dt) {
+    const cx = S.px, cy = S.py - 20;
+    for (const d of S.drops) {
+      d.t -= dt; d.age += dt;
+      if (Math.hypot(d.x - cx, d.y - cy) < 40) {
+        d.t = 0; d.got = true;
+        addItem(d.key); writeSave();
+        S.loot.push(d.key);
+        const r = parseKey(d.key).r;
+        popup(d.x, d.y - 40, [{ text: itemName(d.key), color: RARITIES[r].c, size: r >= 4 ? 30 : 24, font: NUM_FONT }, { text: 'çantaya eklendi', color: '#555', size: 18, font: UI_FONT }], 1.6);
+        burst(d.x, d.y, 10 + r * 3, RARITIES[r].c);
+        Snd.pickup(r);
+      }
+    }
+    S.drops = S.drops.filter(d => d.t > 0);
+  }
+
+  function drawDrops() {
+    for (const d of S.drops) {
+      // son 3 saniye: giderek hızlanan yanıp sönme ve solma
+      if (d.t < DROP_FADE) {
+        const k = d.t / DROP_FADE;
+        if (Math.floor(clock * (6 + (1 - k) * 18)) % 2 === 0) continue;
+        ctx.globalAlpha = 0.3 + 0.7 * k;
+      }
+      const r = parseKey(d.key).r, rc = RARITIES[r].c;
+      const pop = Math.min(1, d.age * 4), bob = Math.sin(d.age * 4) * 4;
+      ctx.save();
+      ctx.translate(d.x, d.y + bob);
+      ctx.scale(easeOutBack(pop), easeOutBack(pop));
+      // nadirlik ışığı
+      ctx.fillStyle = rc; ctx.globalAlpha *= 0.25;
+      ctx.beginPath(); ctx.arc(0, 0, 30 + Math.sin(d.age * 6) * 4 + r * 1.5, 0, Math.PI * 2); ctx.fill();
+      ctx.globalAlpha /= 0.25;
+      // kalan süre halkası
+      ctx.strokeStyle = rc; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(0, 0, 26, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * (d.t / DROP_LIFE)); ctx.stroke();
+      ctx.translate(-25, -25);
+      drawItemIcon(ctx, d.key, 50, clock);
+      ctx.restore();
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  // Küsuratlı gücü ihtimale çevirir: 1.4 → %60 ihtimalle 1, %40 ihtimalle 2
+  function roundChance(x) { const f = Math.floor(x); return f + (Math.random() < x - f ? 1 : 0); }
+
+  // Sayının yeni değerini yazar; sıfır olduysa öldürür ve true döner.
+  function setValue(e, nv) {
+    nv = clamp(nv, -99999, 99999);
+    e.prev = e.value; e.value = nv; e.change = 1; e.flash = 1;
+    if (e.boss) { e.lastHit = e.t; e.pop = 0.6; } else { e.pop = 1; e.r = radiusFor(nv); }
+    if (nv === 0) { killEnemy(e); return true; }
+    return false;
+  }
+
+  // + / − uygular; doğru yöndeki vuruş sıfırı geçmez.
+  function pmStep(e, i, raw) {
+    const step = roundChance(raw);
+    if (step <= 0) return { killed: false, step: 0 };
+    const v = e.value;
+    let nv = i === 0 ? v - step : v + step;
+    if ((v > 0 && nv < 0) || (v < 0 && nv > 0)) nv = 0;
+    return { killed: setValue(e, nv), step };
+  }
+
+  // Vuruş: işlem + kalem hasarı + kritik + kalem etkileri. Sayı öldüyse true döner.
   function hitEnemy(e, s) {
-    const i = s.op, p = s.pow;
+    const G = S.gear, i = s.op, p = s.pow;
     const dir = Math.atan2(s.vy, s.vx);
-    e.vx += Math.cos(dir) * 90; e.vy += Math.sin(dir) * 90;
+    const crit = Math.random() < G.crit;
+    const kb = e.boss ? 15 : 90;
+    e.vx += Math.cos(dir) * kb; e.vy += Math.sin(dir) * kb;
+    if (crit) addLabel(s.x, s.y - 42, 'KRİTİK!', '#d6a400', 22);
+    let killed = false;
     if (i === 3) {
       // × : sayıyı değiştirmez, işaretler
-      e.markMul = Math.max(p, e.markT > 0 ? e.markMul : 1); e.markT = MARK_TIME; e.pop = 0.6;
+      const mul = p * (crit ? 2 : 1);
+      e.markMul = Math.max(mul, e.markT > 0 ? e.markMul : 1); e.markT = MARK_TIME; e.pop = 0.6;
       splat(s.x, s.y, dir, 6, MARK);
-      addLabel(s.x, s.y - 14, '×' + p, MARK, 24);
+      addLabel(s.x, s.y - 14, '×' + mul, MARK, 24);
       Snd.mark();
-      return;
-    }
-    const v = e.value;
-    let nv, label;
-    if (i < 2) {
-      const step = p * (e.markT > 0 ? e.markMul : 1);
-      nv = i === 0 ? v - step : v + step;
-      // doğru yöne vuruş sıfırı geçmez: sıfırda durur
-      if ((v > 0 && nv < 0) || (v < 0 && nv > 0)) nv = 0;
-      label = (i === 0 ? MINUS : '+') + step;
+    } else if (i < 2) {
+      const raw = p * (e.markT > 0 ? e.markMul : 1) * G.dmg * (1 + (e.hl || 0)) * (crit ? 2 : 1);
+      const r = pmStep(e, i, raw);
+      killed = r.killed;
+      splat(s.x, s.y, dir, 7);
+      addLabel(s.x, s.y - 14, r.step ? (i === 0 ? MINUS : '+') + r.step : 'ıska', r.step ? RED : '#999', 22);
+      Snd.hit(e.value);
     } else {
-      nv = Math.trunc(v / p);
-      label = '÷' + p;
+      const d = p * (crit ? 2 : 1), v = e.value;
+      let nv = Math.trunc(v / d), label = '÷' + d;
       // bossların ÷ zırhı: tek vuruşta başlangıç değerinin en fazla %12'si gider
       if (e.boss) {
         const cap = Math.max(1, Math.round(Math.abs(e.v0) * 0.12));
-        if (Math.abs(v - nv) > cap) { nv = v - Math.sign(v) * cap; label = `÷${p} (zırh)`; }
+        if (Math.abs(v - nv) > cap) { nv = v - Math.sign(v) * cap; label = `÷${d} (zırh)`; }
       }
+      killed = setValue(e, nv);
+      splat(s.x, s.y, dir, 7);
+      addLabel(s.x, s.y - 14, label, RED, 22);
+      Snd.hit(nv);
     }
-    nv = clamp(nv, -99999, 99999);
-    if (e.boss) { e.lastHit = e.t; e.prev = v; e.value = nv; e.change = 1; e.pop = 0.6; e.flash = 1; }
-    else { e.prev = v; e.value = nv; e.change = 1; e.pop = 1; e.flash = 1; e.r = radiusFor(nv); }
-    splat(s.x, s.y, dir, 7);
-    addLabel(s.x, s.y - 14, label, RED, 22);
-    Snd.hit(nv);
-    if (nv === 0) killEnemy(e);
+    if (!killed) penEffects(e, p);
+    if (G.shatter && !s.shard && Math.random() < G.shatter) shatter(s, e);
+    if (G.splash && i < 2 && !s.shard) splash(e, s, G);
+    return killed;
+  }
+
+  function penEffects(e, p) {
+    const G = S.gear;
+    if (G.root && Math.random() < G.root) { e.rootT = 2; addLabel(e.x, e.y - e.r - 10, 'SABİT!', '#1d3d7a', 20); }
+    if (G.slow && Math.random() < G.slow) { e.slowT = 3; addLabel(e.x, e.y - e.r - 10, 'yavaş', '#2a6fdb', 20); }
+    // zehir: saniyede (güç × hasar × zehir oranı) kadar sıfıra yaklaştırır; en az 4 sn'de 1
+    if (G.poison) e.poison = Math.max(e.poison || 0, Math.max(0.25, p * G.dmg * G.poison));
+    if (G.highlight) e.hl = Math.max(e.hl || 0, G.highlight);
+  }
+
+  // Uçlu 0.5: kalem kırılır, 4 parça rastgele yönlere saçılır
+  function shatter(s, e) {
+    for (let k = 0; k < 4; k++) {
+      const a = Math.random() * Math.PI * 2;
+      S.shots.push({
+        x: s.x, y: s.y, vx: Math.cos(a) * 720, vy: Math.sin(a) * 720,
+        op: s.op, pow: s.pow, label: s.label, target: null, age: 0, trail: [], spin: rand(-0.6, 0.6),
+        dead: false, shard: true, hitIds: [e.id],
+      });
+    }
+    addLabel(s.x, s.y - 30, 'kırıldı!', '#6b6b72', 18);
+  }
+
+  // Pastel: çevredeki sayılara da daha zayıf + / − uygular
+  function splash(e, s, G) {
+    addPart('ring', e.x, e.y, 0, 0, 0.35, G.pen === 'pastel' ? '#e88fb0' : INK, 10);
+    for (const o of S.enemies) {
+      if (o === e || o.dead || o.write < 1) continue;
+      if (Math.hypot(o.x - e.x, o.y - e.y) > 95 + o.r) continue;
+      pmStep(o, s.op, s.pow * G.dmg * G.splash);
+    }
   }
 
   function contactDamage(e) {
@@ -481,7 +736,7 @@
     const hx = sh.x + Math.cos(ang) * 50, hy = sh.y + Math.sin(ang) * 50;
     S.shots.push({
       x: hx, y: hy, vx: Math.cos(ang) * SHOT_SPEED, vy: Math.sin(ang) * SHOT_SPEED,
-      op: i, pow: wPow(i, S.wlv[i]), label: wLabel(i, S.wlv[i]),
+      op: i, pow: wPow(i, S.wlv[i]), label: wLabel(i, S.wlv[i]), thick: S.gear.pen === 'uclu07', color: PENS[S.gear.pen].color,
       target: aim.target, age: 0, trail: [], spin: rand(-0.6, 0.6), dead: false,
     });
     S.recoil = 1;
@@ -490,7 +745,7 @@
       addPart('dot', hx, hy, Math.cos(a) * sp, Math.sin(a) * sp, 0.2, RED, rand(1.5, 2.5));
     }
     Snd.shoot();
-    S.fireCD = FIRE_CD;
+    S.fireCD = FIRE_CD / S.gear.rate;
   }
 
   function findTarget(x, y) {
@@ -690,9 +945,164 @@
     $('clReward').innerHTML = `+${money} para${first ? '<br>+1 yetenek puanı' : ''}`;
     $('clTotals').textContent = `Toplam: ${save.money} para · ${save.sp} yetenek puanı`;
     $('btnNext').style.display = s < STAGES ? '' : 'none';
+    $('clLoot').textContent = lootSummary();
     Snd.win();
     burst(S.px, S.py - 40, 40, '#d6a400');
     setTimeout(() => { if (S.mode === 'clear') showOverlay('clear'); }, 1200);
+  }
+
+  function lootSummary() {
+    if (!S.loot.length) return 'Bu bölümde eşya toplamadın.';
+    const best = S.loot.reduce((a, k) => (parseKey(k).r > parseKey(a).r ? k : a));
+    return `Toplanan eşya: ${S.loot.length} · en iyisi: ${itemName(best)}`;
+  }
+
+  // ---------- çanta ve mağaza ----------
+  let bagReturn = 'menu';
+  const TYPE_ORDER = { pen: 0, hat: 1, boot: 2 };
+  const TYPE_TITLE = { pen: 'Kalemler', hat: 'Şapkalar', boot: 'Botlar' };
+
+  function iconCanvas(k, size = 48) {
+    const c = document.createElement('canvas');
+    const d = Math.min(window.devicePixelRatio || 1, 2);
+    c.width = c.height = size * d; c.style.width = c.style.height = size + 'px';
+    const g = c.getContext('2d'); g.scale(d, d);
+    drawItemIcon(g, k, size, 0);
+    return c;
+  }
+
+  function openBag(from) {
+    bagReturn = from || 'menu';
+    setMode('bag');
+    renderBag();
+    showOverlay('bag');
+  }
+
+  // Birleştirmeye girebilen adet: kuşanılı eşya hariç
+  const freeCount = k => (save.inv[k] || 0) - (Object.values(save.eq).includes(k) ? 1 : 0);
+
+  function renderBag() {
+    const eqBox = $('bagEquip');
+    eqBox.innerHTML = '';
+    for (const slot of ['pen', 'hat', 'boot']) {
+      const k = save.eq[slot];
+      const div = document.createElement('div');
+      div.className = 'slot';
+      if (k && save.inv[k]) {
+        div.appendChild(iconCanvas(k, 44));
+        const t = document.createElement('span');
+        t.innerHTML = `<b style="color:${RARITIES[parseKey(k).r].c}">${itemName(k)}</b>`;
+        div.appendChild(t);
+      } else div.innerHTML = `<span class="empty">${slot === 'hat' ? 'Şapka yok' : slot === 'boot' ? 'Bot yok' : 'Kalem yok'}</span>`;
+      eqBox.appendChild(div);
+    }
+    const list = $('bagList');
+    list.innerHTML = '';
+    const keys = Object.keys(save.inv).filter(k => save.inv[k] > 0).sort((a, b) => {
+      const A = parseKey(a), B = parseKey(b);
+      return TYPE_ORDER[A.type] - TYPE_ORDER[B.type] || B.r - A.r || A.kind.localeCompare(B.kind);
+    });
+    let lastType = null;
+    for (const k of keys) {
+      const it = parseKey(k);
+      if (it.type !== lastType) {
+        lastType = it.type;
+        const h = document.createElement('h3'); h.textContent = TYPE_TITLE[it.type]; list.appendChild(h);
+      }
+      const row = document.createElement('div');
+      row.className = 'item';
+      row.appendChild(iconCanvas(k, 48));
+      const info = document.createElement('div');
+      info.className = 'info';
+      info.innerHTML = `<b style="color:${RARITIES[it.r].c}">${itemName(k)}</b> <span class="cnt">×${save.inv[k]}</span><small>${itemDesc(k)}</small>`;
+      row.appendChild(info);
+      const acts = document.createElement('div');
+      acts.className = 'acts';
+      const equipped = save.eq[it.type] === k;
+      const eb = document.createElement('button');
+      eb.textContent = equipped ? 'Kuşanıldı' : 'Kuşan';
+      eb.disabled = equipped;
+      eb.addEventListener('click', () => { save.eq[it.type] = k; writeSave(); Snd.select(); renderBag(); });
+      acts.appendChild(eb);
+      if (it.r < RARITIES.length - 1 && freeCount(k) >= 5) {
+        const mb = document.createElement('button');
+        mb.className = 'merge';
+        mb.textContent = `Birleştir 5 → 1 ${RARITIES[it.r + 1].n}`;
+        mb.addEventListener('click', () => mergeItems(k));
+        acts.appendChild(mb);
+      }
+      row.appendChild(acts);
+      list.appendChild(row);
+    }
+    $('bagTotals').textContent = `${save.money} para · ${keys.reduce((a, k) => a + save.inv[k], 0)} eşya`;
+  }
+
+  // 5 aynı eşya (aynı tip, çeşit ve nadirlik) → 1 üst nadirlik
+  function mergeItems(k) {
+    const it = parseKey(k);
+    if (it.r >= RARITIES.length - 1 || freeCount(k) < 5) return;
+    save.inv[k] -= 5;
+    if (save.inv[k] <= 0) delete save.inv[k];
+    const up = makeKey(it.type, it.kind, it.r + 1);
+    addItem(up);
+    writeSave();
+    Snd.pickup(it.r + 1);
+    renderBag();
+    showReveal('bagReveal', up, 'Birleştirildi!');
+  }
+
+  function showReveal(id, k, title) {
+    const box = $(id);
+    const r = parseKey(k).r;
+    box.innerHTML = '';
+    box.className = 'reveal show r' + r;
+    const h = document.createElement('div'); h.className = 'rt'; h.textContent = title; box.appendChild(h);
+    box.appendChild(iconCanvas(k, 84));
+    const n = document.createElement('div'); n.className = 'rn'; n.style.color = RARITIES[r].c; n.textContent = itemName(k); box.appendChild(n);
+    const d = document.createElement('small'); d.textContent = itemDesc(k); box.appendChild(d);
+    const ok = document.createElement('button'); ok.textContent = 'Tamam'; ok.addEventListener('click', () => { box.className = 'reveal'; }); box.appendChild(ok);
+  }
+
+  function openShop(from) {
+    if (from) bagReturn = from;
+    setMode('shop');
+    renderShop();
+    showOverlay('shop');
+  }
+
+  function renderShop() {
+    $('shopMoney').textContent = `${save.money} para`;
+    const list = $('shopList');
+    list.innerHTML = '';
+    BOXES.forEach((b, i) => {
+      const total = b.w.reduce((a, x) => a + x, 0);
+      const rare = b.w.slice(3).reduce((a, x) => a + x, 0) / total;
+      const btn = document.createElement('button');
+      btn.className = 'box';
+      btn.style.borderColor = b.c;
+      btn.disabled = save.money < b.price;
+      btn.innerHTML = `<span class="bn" style="color:${b.c}">${b.n}</span><span class="bp">${b.price} para</span><small>Nadir ve üstü: %${Math.round(rare * 100)}</small>`;
+      btn.addEventListener('click', () => buyBox(i));
+      list.appendChild(btn);
+    });
+  }
+
+  function buyBox(i) {
+    const b = BOXES[i];
+    if (save.money < b.price) return;
+    save.money -= b.price;
+    const k = rollItem(b.w);
+    addItem(k);
+    writeSave();
+    Snd.coin();
+    setTimeout(() => Snd.pickup(parseKey(k).r), 150);
+    renderShop();
+    showReveal('shopReveal', k, b.n + ' açıldı!');
+  }
+
+  function closeBagShop() {
+    if (bagReturn === 'stages') showStages();
+    else toMenu();
   }
 
   // ---------- seviye atlama ----------
@@ -732,6 +1142,9 @@
     ], 1.2);
     if (S.pendingLevels > 0) setTimeout(() => { if (S.mode === 'play' && S.pendingLevels > 0) openLevelUp(); }, 250);
   }
+
+  // Oyun sahnesi (oyuncu + HUD) sadece bölüm içindeki modlarda çizilir; menü ekranlarında boş defter görünür.
+  const inGame = () => ['play', 'pause', 'levelup', 'quiz', 'over', 'clear'].includes(S.mode);
 
   // ---------- mod geçişleri ----------
   function setMode(m) { S.mode = m; wrap.dataset.mode = m; }
@@ -777,6 +1190,7 @@
     $('ovLevel').textContent = S.level;
     $('ovRp').textContent = `+${money}`;
     $('ovBest').textContent = `Toplam: ${save.money} para`;
+    $('ovLoot').textContent = lootSummary();
     setTimeout(() => { if (S.mode === 'over') showOverlay('over'); }, 900);
   }
 
@@ -800,7 +1214,7 @@
     for (let i = 2; i < 4; i++) {
       if (S.ammo[i] < S.ammoCap) {
         S.ammoT[i] += dt;
-        if (S.ammoT[i] >= AMMO_REGEN) { S.ammoT[i] = 0; S.ammo[i]++; S.cardShake[i] = 0.6; Snd.ammo(); }
+        if (S.ammoT[i] >= AMMO_REGEN * S.gear.reload) { S.ammoT[i] = 0; S.ammo[i]++; S.cardShake[i] = 0.6; Snd.ammo(); }
       } else S.ammoT[i] = 0;
     }
     S.iframes = Math.max(0, S.iframes - dt);
@@ -819,7 +1233,13 @@
       } else if (S.enemies.length === 0) {
         S.waveActive = false;
         S.bullets.length = 0;
-        if (S.wave >= WAVES) { stageClear(); return; }
+        if (S.wave >= WAVES) {
+          // son dalga: yerde eşya varsa önce toplanmalarını (ya da sürelerinin dolmasını) bekle
+          if (!S.drops.length) { stageClear(); return; }
+          S.ending = true;
+          S.banner = { text: 'Eşyaları topla!', sub: 'Süreleri dolmadan kap', t: 0, life: 2.4 };
+          return;
+        }
         S.nextWaveT = 2.2;
         const bonus = S.wave * 10, heal = Math.min(isBossWave(S.wave) ? 30 : 10, S.maxHp - S.hp);
         S.rp += bonus; S.rpPop = 1;
@@ -827,6 +1247,8 @@
         S.banner = { text: isBossWave(S.wave) ? 'Boss silindi!' : 'Dalga temiz!', sub: `+${bonus} RP${heal > 0 ? ` · +${heal} can` : ''}`, t: 0, life: 2.0 };
         Snd.wave();
       }
+    } else if (S.ending) {
+      if (!S.drops.length) { S.ending = false; stageClear(); return; }
     } else if (S.nextWaveT > 0) {
       S.nextWaveT -= dt;
       if (S.nextWaveT <= 0) startWave();
@@ -836,6 +1258,7 @@
     updateEnemies(dt);
     if (S.mode !== 'play') return;
     updateBullets(dt);
+    updateDrops(dt);
     updateOrbs(dt);
   }
 
@@ -853,8 +1276,8 @@
     const ml = Math.hypot(mx, my);
     if (ml > 1) { mx /= ml; my /= ml; }
     const r = Math.min(1, dt * 14);
-    S.pvx += (mx * MOVE_SPEED - S.pvx) * r;
-    S.pvy += (my * MOVE_SPEED - S.pvy) * r;
+    const spd = MOVE_SPEED * S.gear.speed;
+    S.pvy += (my * spd - S.pvy) * r;
     S.px = clamp(S.px + S.pvx * dt, P_MIN_X, P_MAX_X);
     S.py = clamp(S.py + S.pvy * dt, P_MIN_Y, P_MAX_Y);
     S.walk += Math.hypot(S.pvx, S.pvy) * dt * 0.06;
@@ -874,9 +1297,18 @@
       if (s.trail.length > 16) s.trail.splice(0, 2);
       s.x += s.vx * dt; s.y += s.vy * dt;
       for (const e of S.enemies) {
-        if (e.dead || e.write < 1) continue;
-        if (Math.hypot(e.x - s.x, e.y - s.y) < e.r + 12) { hitEnemy(e, s); s.dead = true; break; }
+        if (e.dead || e.write < 1 || (s.hitIds && s.hitIds.includes(e.id))) continue;
+        if (Math.hypot(e.x - s.x, e.y - s.y) < e.r + (s.thick ? 18 : 12)) {
+          const killed = hitEnemy(e, s);
+          // Uçlu 0.7: öldürdüğü sayıyı delip arkasına devam eder (en fazla 4 kez)
+          if (killed && S.gear.pierce && !s.shard && (s.pierced || 0) < 4) {
+            (s.hitIds = s.hitIds || []).push(e.id);
+            s.pierced = (s.pierced || 0) + 1; s.target = null;
+          } else s.dead = true;
+          break;
+        }
       }
+      if (s.shard && s.age > 0.35) s.dead = true;
       if (s.x < -60 || s.x > W + 60 || s.y < -60 || s.y > H + 60) s.dead = true;
     }
     S.shots = S.shots.filter(s => !s.dead);
@@ -891,16 +1323,33 @@
       e.flash = Math.max(0, e.flash - dt * 5);
       if (e.markT > 0) { e.markT -= dt; if (e.markT <= 0) { e.markT = 0; e.markMul = 1; } }
       if (e.write < 1) { e.write = Math.min(1, e.write + dt * 2.2); continue; }
+      // keçeli kalem zehri: sayıyı her saniye sıfıra doğru yer
+      if (e.poison > 0) {
+        e.poisonAcc = (e.poisonAcc || 0) + e.poison * dt;
+        if (e.poisonAcc >= 1) {
+          const n = Math.floor(e.poisonAcc); e.poisonAcc -= n;
+          const v = e.value; let nv = v - Math.sign(v) * n;
+          if (Math.sign(nv) !== Math.sign(v)) nv = 0;
+          addPart('dot', e.x + rand(-10, 10), e.y + e.r * 0.4, 0, 60, 0.5, '#2f9a6a', 3);
+          if (setValue(e, nv)) continue;
+          e.flash = 0; e.pop = Math.min(e.pop, 0.3);
+        }
+      }
       if (e.boss) {
         updateBoss(e, dt);
         if (S.mode !== 'play') return;
+      }
+      if (e.rootT > 0) { e.rootT -= dt; e.vx *= 0.5; e.vy *= 0.5; if (e.boss) e.dashState = 0; continue; }   // dolma kalem: sabit
+      if (e.boss) {
         if (e.dashState === 1) { e.vx *= 0.8; e.vy *= 0.8; continue; }       // atılmadan önce titrer
         if (e.dashState === 2) { e.vx = Math.cos(e.dashDir) * 430; e.vy = Math.sin(e.dashDir) * 430; continue; }
       }
+      let spd = e.spd;
+      if (e.slowT > 0) { e.slowT -= dt; spd *= 0.5; }                    // tükenmez kalem: yavaş
       const dx = cx - e.x, dy = cy - e.y, d = Math.hypot(dx, dy) || 1;
       e.wob += dt * 2.2;
       const nx = -dy / d, ny = dx / d, w = Math.sin(e.wob) * 0.45;
-      const tx = (dx / d + nx * w) * e.spd, ty = (dy / d + ny * w) * e.spd;
+      const tx = (dx / d + nx * w) * spd, ty = (dy / d + ny * w) * spd;
       const k = Math.min(1, dt * 2);
       e.vx += (tx - e.vx) * k; e.vy += (ty - e.vy) * k;
     }
@@ -1002,7 +1451,20 @@
         const k = 1 - e.change;
         drawText(fmt(e.prev), k * 18, -k * 34, 46 * (1 - k * 0.4), '#8a8580', NUM_FONT, e.id + boil, e.change * 0.55);
       }
-      const color = e.flash > 0.45 ? RED : (e.value < 0 ? NEG_INK : INK);
+      // fosforlu kalem: sayının arkasında sarı vurgu
+      if (e.hl) {
+        const tw = e.r * 1.7;
+        ctx.fillStyle = 'rgba(230,198,25,0.45)';
+        ctx.beginPath(); ctx.moveTo(-tw / 2, -10); ctx.lineTo(tw / 2, -14); ctx.lineTo(tw / 2 + 4, 16); ctx.lineTo(-tw / 2 - 2, 18); ctx.fill();
+      }
+      // dolma kalem: altında mürekkep lekesi
+      if (e.rootT > 0) {
+        ctx.fillStyle = 'rgba(29,61,122,0.35)';
+        ctx.beginPath(); ctx.ellipse(0, e.r * 0.7, e.r * 1.05, 11, 0, 0, Math.PI * 2); ctx.fill();
+      }
+      let color = e.flash > 0.45 ? RED : (e.value < 0 ? NEG_INK : INK);
+      if (e.flash <= 0.45 && e.poison > 0) color = '#2f7a4a';
+      if (e.flash <= 0.45 && e.slowT > 0) color = '#2a6fdb';
       drawText(fmt(e.value), 0, 0, 46, color, NUM_FONT, e.id * 7 + boil);
       if (e.markT > 0) {
         // × işareti: turuncu rozet + kalan süre halkası
@@ -1215,18 +1677,20 @@
       if (t.length >= 4) {
         for (let i = 2; i < t.length; i += 2) {
           const k = i / t.length;
-          ctx.strokeStyle = `rgba(212,58,47,${0.28 * k})`;
-          ctx.lineWidth = 3 + 9 * k;
+          ctx.strokeStyle = s.color || RED;
+          ctx.globalAlpha = 0.28 * k;
+          ctx.lineWidth = (s.thick ? 6 : 3) + (s.thick ? 14 : 9) * k;
           ctx.beginPath(); ctx.moveTo(t[i - 2], t[i - 1]); ctx.lineTo(i + 2 < t.length ? t[i + 2] : s.x, i + 2 < t.length ? t[i + 3] : s.y); ctx.stroke();
         }
+        ctx.globalAlpha = 1;
       }
       ctx.save();
       ctx.translate(s.x, s.y);
       ctx.rotate(s.spin * 0.3 + Math.sin(s.age * 18) * 0.08);
-      const sc = Math.min(1, 0.5 + s.age * 8);
+      const sc = Math.min(1, 0.5 + s.age * 8) * (s.shard ? 0.6 : 1);
       ctx.scale(sc, sc);
       ctx.lineWidth = 5; ctx.strokeStyle = PAPER;
-      ctx.font = `30px ${NUM_FONT}`;
+      ctx.font = `${s.thick ? 38 : 30}px ${NUM_FONT}`;
       ctx.strokeText(s.label, 0, 0);
       ctx.fillStyle = s.op === 3 ? MARK : RED;
       ctx.fillText(s.label, 0, 0);
@@ -1237,12 +1701,12 @@
   function drawPlayer(boil) {
     // dokunulmazlık süresinde yanıp söner
     if (S.iframes > 0 && Math.floor(clock * 14) % 2 === 0) ctx.globalAlpha = 0.45;
-    drawStick(S.px, S.py, S.aim, S.recoil, S.hurt, boil, S.walk, Math.hypot(S.pvx, S.pvy) > 20);
+    drawStick(S.px, S.py, S.aim, S.recoil, S.hurt, boil, S.walk, Math.hypot(S.pvx, S.pvy) > 20, PENS[S.gear.pen].color);
     ctx.globalAlpha = 1;
   }
 
   // Çöp adam: (bx, by) gövde merkezi; aim = kalemin yönü; recoil/hurt 0..1; walk = adım fazı.
-  function drawStick(bx, by, aim, recoil, hurtT, boil, walk = 0, moving = false) {
+  function drawStick(bx, by, aim, recoil, hurtT, boil, walk = 0, moving = false, penColor = '#e04b3f') {
     const bob = Math.sin(clock * 3) * 2;
     const rec = recoil * 7;
     const x = bx + Math.cos(aim) * -rec * 0.4, y = by + bob;
@@ -1289,7 +1753,7 @@
     L(sx, sy, elx, ely, 51); L(elx, ely, hx2, hy2, 53);
     ctx.save();
     ctx.translate(hx2, hy2); ctx.rotate(a);
-    ctx.fillStyle = '#e04b3f'; ctx.fillRect(-10, -4, 30, 8);
+    ctx.fillStyle = penColor; ctx.fillRect(-10, -4, 30, 8);
     ctx.fillStyle = '#f0a0b0'; ctx.fillRect(-15, -4, 5, 8);
     ctx.fillStyle = '#f1d2a6';
     ctx.beginPath(); ctx.moveTo(20, -4); ctx.lineTo(31, 0); ctx.lineTo(20, 4); ctx.closePath(); ctx.fill();
@@ -1435,7 +1899,7 @@
       else {
         ctx.fillText(`${S.ammo[i]}/${S.ammoCap}`, 0, CARD_H / 2 - 24);
         // bir sonraki mermiye kalan süre
-        const k = S.ammo[i] < S.ammoCap ? S.ammoT[i] / AMMO_REGEN : 1;
+        const k = S.ammo[i] < S.ammoCap ? S.ammoT[i] / (AMMO_REGEN * S.gear.reload) : 1;
         ctx.globalAlpha = 1;
         ctx.fillStyle = 'rgba(31,29,27,0.12)'; ctx.fillRect(-36, CARD_H / 2 - 12, 72, 5);
         ctx.fillStyle = i === 3 ? MARK : '#0f7f8f'; ctx.fillRect(-36, CARD_H / 2 - 12, 72 * k, 5);
@@ -1493,9 +1957,10 @@
     const ox = S.shake > 0 ? rand(-1, 1) * S.shake : 0, oy = S.shake > 0 ? rand(-1, 1) * S.shake : 0;
     ctx.setTransform(sx, 0, 0, sy, ox * sx, oy * sy);
     drawAim();
+    drawDrops();
     drawOrbs();
     drawEnemies(boil);
-    if (S.mode !== 'menu' && S.mode !== 'stages') drawPlayer(boil);
+    if (inGame()) drawPlayer(boil);
     drawShots();
     drawBullets();
     drawParts();
@@ -1503,7 +1968,7 @@
     drawBanner();
     ctx.setTransform(sx, 0, 0, sy, 0, 0);
     drawTouchControls();
-    if (S.mode !== 'menu' && S.mode !== 'stages') { drawHUD(boil); drawBossBar(); }
+    if (inGame()) { drawHUD(boil); drawBossBar(); }
     drawCards(boil);
     if (S.hurt > 0) {
       ctx.fillStyle = `rgba(212,58,47,${S.hurt * 0.18})`;
@@ -1947,6 +2412,15 @@
   $('btnNext').addEventListener('click', () => startStage(Math.min(STAGES, S.stage + 1)));
   $('btnClearStages').addEventListener('click', startGame);
   $('btnStagesBack').addEventListener('click', toMenu);
+  $('btnMenuBag').addEventListener('click', () => openBag('menu'));
+  $('btnMenuShop').addEventListener('click', () => openShop('menu'));
+  $('btnStagesBag').addEventListener('click', () => openBag('stages'));
+  $('btnBagShop').addEventListener('click', () => openShop());
+  $('btnShopBag').addEventListener('click', () => openBag(bagReturn));
+  $('btnBagBack').addEventListener('click', closeBagShop);
+  $('btnShopBack').addEventListener('click', closeBagShop);
+  $('btnClearBag').addEventListener('click', () => openBag('stages'));
+  $('btnOverBag').addEventListener('click', () => openBag('stages'));
   for (const b of document.querySelectorAll('#quiz [data-k]')) b.addEventListener('click', () => quizKey(b.dataset.k));
   $('btnResume').addEventListener('click', resumeGame);
   $('btnQuit').addEventListener('click', toMenu);
@@ -1956,7 +2430,7 @@
   // ---------- başlat ----------
   if (/[?&]debug\b/.test(location.search)) {
     window.__sm = {
-      get S() { return S; }, get save() { return save; }, render, update, updateFx, spawnEnemy, spawnBoss, startGame, startStage, showStages, fire, gainXP, chooseUpgrade, openQuiz, quizKey, resolveQuiz, makeQuestion, stageCfg, bossHp, BOSS_TYPES, bossFor, wPow, xpNeed,
+      get S() { return S; }, get save() { return save; }, render, update, updateFx, spawnEnemy, spawnBoss, startGame, startStage, showStages, fire, gainXP, chooseUpgrade, openQuiz, quizKey, resolveQuiz, makeQuestion, stageCfg, bossHp, BOSS_TYPES, bossFor, wPow, xpNeed, rollItem, gearStats, hitEnemy, openBag, openShop, buyBox, mergeItems, itemName, itemDesc, parseKey, RARITIES,
       seekIntro(t) { if (S.mode !== 'intro') startIntro(); introT = t; }, INTRO_LEN,
     };
   }

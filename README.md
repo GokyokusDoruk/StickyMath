@@ -31,6 +31,13 @@ Tarayıcıda oynanan matematik aksiyon oyunu. Sayılar defter sayfasında çöp 
 - Bosslarda ÷ zırhı: tek ÷ vuruşu başlangıç değerinin en fazla %12'sini götürür.
 - Bölümü ilk kez geçmek +1 yetenek puanı verir; para her seferinde verilir, ölünce geçilen dalga oranında. İlerleme `localStorage`'da (`sm_save_v1`).
 
+## Eşyalar
+
+- Kalem (ana silah), şapka (kritik şansı), bot (hareket hızı). 8 nadirlik: Dandik → Divine.
+- Kalemler: İkili Küçük, Dolma (sabitler), Tükenmez (yavaşlatır), Kurşun, Uçlu 0.5 (kırılıp saçılır), Uçlu 0.7 (delip geçer), Keçeli (zehir), Fosforlu (işaretler), Pastel (splash).
+- Düşme: normal sayı %8, boss %100. Yerde 10 saniye kalır, son 3 saniyede yanıp söner.
+- Çantada 5 aynı eşya → 1 üst nadirlik (kuşanılı olan sayılmaz). Mağazada para ile kutu açılır.
+
 ## Yayın
 
 Cloudflare Pages `main` dalını `stickymath.dorukplays.com` adresine yayınlar. Diğer dallar için önizleme adresi: `https://<dal-adı>.stickymath.pages.dev`.
@@ -43,4 +50,4 @@ python -m http.server 8765
 
 `?nointro` açılış animasyonunu atlar, `?debug` test için `window.__sm` kancasını açar.
 
-Her yay�nda `index.html` i�indeki `game.js?v=N` ve `style.css?v=N` numaras�n� bir art�r; `_headers` da taray�c�lar�n dosyalar� her a��l��ta yeniden kontrol etmesini sa�lar.
+Her yayında `index.html` içindeki `game.js?v=N` ve `style.css?v=N` numarasını bir artır; `_headers` da tarayıcıların dosyaları her açılışta yeniden kontrol etmesini sağlar.
