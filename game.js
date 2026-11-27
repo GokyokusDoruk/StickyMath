@@ -18,7 +18,7 @@
   const HIT_IFRAMES = 0.9;
   const MAX_WLV = 30;
   const AMMO_CAP = 5, AMMO_REGEN = 20;  // ÷: kapasite ve kaç saniyede 1 mermi
-  const P_MIN_X = 40, P_MAX_X = W - 30, P_MIN_Y = PLAY_TOP + 80, P_MAX_Y = PLAY_BOTTOM - 55;
+  const P_MAX_Y = PLAY_BOTTOM - 55;   // başlangıçta oyuncunun yeri için
   const IS_TOUCH = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
 
   const canvas = document.getElementById('game');
@@ -187,7 +187,9 @@
       spawnQueue: [], spawnT: 0, waveActive: false, nextWaveT: 0, bossPending: null,
       banner: null,
       sel: 0, cardShake: [0, 0, 0],
-      rulers: [], compass: null, items: [], seen: {},
+      rulers: [], compasses: [], staplers: [], chains: [], chunks: {}, items: [], seen: {},
+      cam: { x: 0, y: 0 },
+      waveTime: 0, waveLeft: 0,
       combo: { par: -1, n: 0, fade: 0 },   // tek/çift kombosu: par 0 = çift, 1 = tek
       prime: 0,                            // üst üste öldürülen pozitif asal sayı sayısı
       buffs: { rapid: 0, shield: 0 },
@@ -227,35 +229,51 @@
     const b = bg.getContext('2d');
     b.setTransform(bg.width / W, 0, 0, bg.height / H, 0, 0);
     b.fillStyle = PAPER; b.fillRect(0, 0, W, H);
-    for (let i = 0; i < 300; i++) {
-      b.fillStyle = `rgba(120,100,70,${Math.random() * 0.07})`;
-      b.fillRect(Math.random() * W, Math.random() * H, rand(1, 3), rand(1, 3));
-    }
-    if (paper === 'grid') {
-      // kareli defter: ince kareler, her 5 karede bir koyu çizgi
-      const G = 24;
-      for (let i = 0, x = 6; x < W; x += G, i++) {
-        b.strokeStyle = i % 5 ? 'rgba(110,150,205,0.22)' : 'rgba(110,150,205,0.4)'; b.lineWidth = i % 5 ? 1 : 1.3;
-        b.beginPath(); b.moveTo(x, 0); b.lineTo(x, PLAY_BOTTOM + 10); b.stroke();
-      }
-      for (let i = 0, y = 10; y < PLAY_BOTTOM + 10; y += G, i++) {
-        b.strokeStyle = i % 5 ? 'rgba(110,150,205,0.22)' : 'rgba(110,150,205,0.4)'; b.lineWidth = i % 5 ? 1 : 1.3;
-        b.beginPath(); b.moveTo(0, y); b.lineTo(W, y); b.stroke();
-      }
-    } else {
-      // çizgili defter: yatay çizgiler, kırmızı kenar çizgisi, delikler
-      b.strokeStyle = 'rgba(110,150,205,0.35)'; b.lineWidth = 1.2;
-      for (let y = 150; y < PLAY_BOTTOM; y += 34) { b.beginPath(); b.moveTo(0, y); b.lineTo(W, y); b.stroke(); }
-      b.strokeStyle = 'rgba(220,90,90,0.45)'; b.lineWidth = 1.6;
-      b.beginPath(); b.moveTo(58, 0); b.lineTo(58, PLAY_BOTTOM + 10); b.stroke();
-      for (const y of [240, 490, 740]) {
-        b.fillStyle = '#d8d1c3'; b.beginPath(); b.arc(26, y, 11, 0, Math.PI * 2); b.fill();
-        b.fillStyle = 'rgba(0,0,0,0.08)'; b.beginPath(); b.arc(27, y + 2, 9, 0, Math.PI * 2); b.fill();
-      }
-    }
     b.fillStyle = '#e4dccb'; b.fillRect(0, PLAY_BOTTOM + 10, W, H - PLAY_BOTTOM - 10);
     b.strokeStyle = 'rgba(0,0,0,0.15)'; b.lineWidth = 2;
     b.beginPath(); b.moveTo(0, PLAY_BOTTOM + 10); b.lineTo(W, PLAY_BOTTOM + 10); b.stroke();
+  }
+
+  // Defter çizgileri dünya koordinatında çizilir: kamera kaydıkça sayfa da kayar.
+  function drawPaper() {
+    const c = S.cam, x0 = c.x, y0 = c.y, x1 = c.x + W, y1 = c.y + PLAY_BOTTOM + 10;
+    ctx.save();
+    ctx.beginPath(); ctx.rect(x0, y0, W, PLAY_BOTTOM + 10); ctx.clip();
+    // kağıt lekeleri (dünyaya sabit)
+    const T = 180;
+    for (let gx = Math.floor(x0 / T); gx * T < x1; gx++) for (let gy = Math.floor(y0 / T); gy * T < y1; gy++) {
+      for (let k = 0; k < 3; k++) {
+        const n = gx * 73 + gy * 131 + k * 17;
+        ctx.fillStyle = `rgba(120,100,70,${0.03 + Math.abs(noise(n)) * 0.04})`;
+        ctx.fillRect(gx * T + (noise(n + 1) + 1) * T / 2, gy * T + (noise(n + 2) + 1) * T / 2, 2, 2);
+      }
+    }
+    if (paper === 'grid') {
+      const G = 24;
+      for (let x = Math.floor(x0 / G) * G; x < x1; x += G) {
+        const major = Math.round(x / G) % 5 === 0;
+        ctx.strokeStyle = major ? 'rgba(110,150,205,0.4)' : 'rgba(110,150,205,0.22)'; ctx.lineWidth = major ? 1.3 : 1;
+        ctx.beginPath(); ctx.moveTo(x, y0); ctx.lineTo(x, y1); ctx.stroke();
+      }
+      for (let y = Math.floor(y0 / G) * G; y < y1; y += G) {
+        const major = Math.round(y / G) % 5 === 0;
+        ctx.strokeStyle = major ? 'rgba(110,150,205,0.4)' : 'rgba(110,150,205,0.22)'; ctx.lineWidth = major ? 1.3 : 1;
+        ctx.beginPath(); ctx.moveTo(x0, y); ctx.lineTo(x1, y); ctx.stroke();
+      }
+    } else {
+      // çizgili defter: her W genişlikte bir sayfa kenarı ve delikler
+      ctx.strokeStyle = 'rgba(110,150,205,0.35)'; ctx.lineWidth = 1.2;
+      for (let y = Math.floor(y0 / 34) * 34 + 14; y < y1; y += 34) { ctx.beginPath(); ctx.moveTo(x0, y); ctx.lineTo(x1, y); ctx.stroke(); }
+      for (let px = Math.floor(x0 / W) * W; px < x1; px += W) {
+        ctx.strokeStyle = 'rgba(220,90,90,0.45)'; ctx.lineWidth = 1.6;
+        ctx.beginPath(); ctx.moveTo(px + 58, y0); ctx.lineTo(px + 58, y1); ctx.stroke();
+        for (let y = Math.floor(y0 / 250) * 250 - 10; y < y1; y += 250) {
+          ctx.fillStyle = '#d8d1c3'; ctx.beginPath(); ctx.arc(px + 26, y, 11, 0, Math.PI * 2); ctx.fill();
+          ctx.fillStyle = 'rgba(0,0,0,0.08)'; ctx.beginPath(); ctx.arc(px + 27, y + 2, 9, 0, Math.PI * 2); ctx.fill();
+        }
+      }
+    }
+    ctx.restore();
   }
 
   // ---------- dalgalar ----------
@@ -292,32 +310,47 @@
     return out;
   }
 
-  function startWave() {
+  function startWave(hurried) {
     S.wave++;
     S.resolved = 0;
     S.waveActive = true;
+    S.waveTime = S.waveLeft = isBossWave(S.wave) ? 0 : waveDuration(S.stage, S.wave);
     if (isBossWave(S.wave)) {
       const type = bossFor(S.stage, S.wave);
       S.spawnQueue = [];
       S.bossPending = type;
       S.waveTotal = BOSS_TYPES[type].twins ? 2 : 1;
       S.spawnT = 2.2;
-      S.banner = { text: 'BOSS!', sub: BOSS_TYPES[type].name, t: 0, life: 2.4, boss: true };
+      S.banner = { text: 'BOSS!', sub: hurried ? `${BOSS_TYPES[type].name} · eskiler 2× hızlı` : BOSS_TYPES[type].name, t: 0, life: 2.4, boss: true };
       Snd.boss();
     } else {
       S.spawnQueue = genWave(S.wave);
       S.waveTotal = S.spawnQueue.filter(q => q.kind !== 'zero').length;
       S.spawnT = 1.5;
       const hint = S.stage === 1 ? WAVE_HINTS[S.wave] : '';
-      S.banner = { text: `Dalga ${S.wave}/${WAVES}`, sub: hint || '', t: 0, life: 2.0 };
+      S.banner = { text: `Dalga ${S.wave}/${WAVES}`, sub: hurried ? 'Süre doldu! Eskiler 2× hızlı' : (hint || `${S.waveTime} saniye`), t: 0, life: 2.0 };
       Snd.wave();
     }
   }
 
+  // Kamera: dünya koordinatından ekrana (sx = x - cam.x). Harita sonsuzdur.
+  const VIEW_CY = (PLAY_TOP + PLAY_BOTTOM) / 2;
+  function onScreen(o, pad = 0) {
+    const c = S.cam;
+    return o.x > c.x - pad && o.x < c.x + W + pad && o.y > c.y + PLAY_TOP - pad && o.y < c.y + PLAY_BOTTOM + pad;
+  }
+  function updateCamera(dt, snap) {
+    const tx = S.px - W / 2, ty = S.py - 17 - VIEW_CY, k = snap ? 1 : Math.min(1, dt * 8);
+    S.cam.x += (tx - S.cam.x) * k; S.cam.y += (ty - S.cam.y) * k;
+  }
+
   function spawnPos(minDist) {
     let x = 0, y = 0;
+    const c = S.cam;
     for (let tries = 0; tries < 30; tries++) {
-      x = rand(80, W - 50); y = rand(PLAY_TOP + 60, PLAY_BOTTOM - 60);
+      // çoğu ekranda, bir kısmı ekranın hemen dışında doğar
+      if (Math.random() < 0.7) { x = c.x + rand(50, W - 50); y = c.y + rand(PLAY_TOP + 50, PLAY_BOTTOM - 50); }
+      else { const a = rand(0, Math.PI * 2), d = rand(420, 560); x = S.px + Math.cos(a) * d; y = S.py + Math.sin(a) * d; }
       if (Math.hypot(x - S.px, y - S.py) > minDist && S.enemies.every(e => Math.hypot(e.x - x, e.y - y) > 80)) break;
     }
     return { x, y };
@@ -328,7 +361,7 @@
     const spd = Math.min(70, (22 + S.wave * 2 + rand(0, 10)) * S.cfg.spd);
     const e = {
       id: S.nextId++, value: v, prev: v, v0: v, x, y, vx: 0, vy: 0, r: radiusFor(v),
-      pop: 0, change: 0, flash: 0, write: 0, spd, wob: Math.random() * 6.28, dead: false,
+      pop: 0, change: 0, flash: 0, write: 0, spd, wob: Math.random() * 6.28, dead: false, wave: S.wave,
     };
     S.enemies.push(Object.assign(e, extra));
     e.r = enemyRadius(e);
@@ -351,7 +384,7 @@
     const pool = S.enemies.filter(e => !e.dead && !e.boss && !e.trap);
     if (!pool.length) return spawnPos(220);
     const o = pool[randi(0, pool.length - 1)], a = rand(0, Math.PI * 2), d = o.r + rand(40, 70);
-    return { x: clamp(o.x + Math.cos(a) * d, 80, W - 50), y: clamp(o.y + Math.sin(a) * d, PLAY_TOP + 60, PLAY_BOTTOM - 60) };
+    return { x: o.x + Math.cos(a) * d, y: o.y + Math.sin(a) * d };
   }
 
   function spawnSpec(q) {
@@ -372,6 +405,8 @@
     else e = spawnEnemy(q.v);
     if (e.heal) e.spd = Math.min(45, (16 + S.wave) * S.cfg.spd);
     if (e.trap) e.spd = 14;
+    if (q.wave) e.wave = q.wave;
+    if (q.rage && !e.trap) { e.rage = true; e.spd *= 2; }
     if (q.kind !== 'n' && !S.seen[q.kind]) {
       S.seen[q.kind] = true;
       const [t, sub] = KIND_HINTS[q.kind];
@@ -441,16 +476,17 @@
     addPart('label', x, y, rand(-20, 20), -70, 0.6, color, size, { text });
   }
   function popup(x, y, lines, life = 1.5) {
-    x = clamp(x, 120, W - 120);
-    y = clamp(y, PLAY_TOP + 100, PLAY_BOTTOM - 40);
-    for (const p of S.popups) if (Math.abs(p.y - y) < 70 && Math.abs(p.x - x) < 200 && p.t < 0.5) y = Math.max(PLAY_TOP + 100, y - 80);
+    const c = S.cam;
+    x = clamp(x, c.x + 120, c.x + W - 120);
+    y = clamp(y, c.y + PLAY_TOP + 100, c.y + PLAY_BOTTOM - 40);
+    for (const p of S.popups) if (Math.abs(p.y - y) < 70 && Math.abs(p.x - x) < 200 && p.t < 0.5) y = Math.max(c.y + PLAY_TOP + 100, y - 80);
     S.popups.push({ x, y, lines, t: 0, life });
   }
 
   // ---------- oyun olayları ----------
   function killEnemy(e) {
     e.dead = true;
-    if (!e.minion) S.resolved++;
+    if (!e.minion && e.wave === S.wave) S.resolved++;
     burst(e.x, e.y, e.boss ? 50 : 18, e.boss ? '#e0407a' : INK);
     addPart('ghost', e.x, e.y, 0, 0, e.boss ? 0.9 : 0.45, INK, e.boss ? 110 : 46, { text: '0' });
     S.shake = Math.max(S.shake, e.boss ? 18 : 5);
@@ -480,12 +516,12 @@
   const isPrime = n => { if (n < 2 || n % 1) return false; for (let d = 2; d * d <= n; d++) if (n % d === 0) return false; return true; };
   function primeKill(e) {
     if (!isPrime(e.v0)) {
-      if (S.prime >= PRIME_START) addLabel(clamp(S.px, 130, W - 130), S.py - 136, 'Asal kombo bozuldu', '#8a8580', 20);
+      if (S.prime >= PRIME_START) addLabel(S.px, S.py - 136, 'Asal kombo bozuldu', '#8a8580', 20);
       S.prime = 0;
       return;
     }
     S.prime++;
-    if (S.prime === PRIME_START) { addLabel(clamp(S.px, 130, W - 130), S.py - 136, 'Asal sayı kombosu!', '#d69a00', 24); Snd.select(); }
+    if (S.prime === PRIME_START) { addLabel(S.px, S.py - 136, 'Asal sayı kombosu!', '#d69a00', 24); Snd.select(); }
     else if (S.prime > PRIME_START) {
       dropItem(e.x, e.y, true);
       addLabel(e.x, e.y - 40, `${e.v0} asal!`, '#d69a00', 24);
@@ -512,7 +548,7 @@
     const total = Math.abs(e.value), sg = Math.sign(e.value) || 1;
     const n = Math.min(total, 9), xp = xpFor(e.value) / n;
     e.dead = true;
-    S.resolved++;
+    if (e.wave === S.wave) S.resolved++;
     S.rp += total; S.rpPop = 1;
     burst(e.x, e.y, 16, '#0f7f8f');
     addPart('ghost', e.x, e.y, 0, 0, 0.5, '#0f7f8f', 40, { text: `${powBase(e)}^${e.exp}` });
@@ -520,7 +556,7 @@
     for (let k = 0; k < n; k++) {
       const part = Math.floor(total / n) + (k < total % n ? 1 : 0);
       const a = dir + Math.PI + (k / n) * Math.PI * 2;
-      const at = { x: clamp(e.x + Math.cos(a) * 30, 60, W - 40), y: clamp(e.y + Math.sin(a) * 30, PLAY_TOP + 40, PLAY_BOTTOM - 40) };
+      const at = { x: e.x + Math.cos(a) * 30, y: e.y + Math.sin(a) * 30 };
       const sh = spawnEnemy(sg * part, at, { minion: true, shard: true, xpVal: xp, spd: Math.min(80, e.spd * 1.15) });
       sh.vx = Math.cos(a) * 260; sh.vy = Math.sin(a) * 260; sh.write = 0.6;
     }
@@ -650,7 +686,7 @@
       const t = nearestEnemy(sh);
       return t ? { x: t.x, y: t.y, target: t } : { x: sh.x, y: sh.y - 300, target: null };
     }
-    const p = S.pointer;
+    const p = { x: S.pointer.x + S.cam.x, y: S.pointer.y + S.cam.y };
     const t = findTarget(p.x, p.y);
     return t ? { x: t.x, y: t.y, target: t } : { x: p.x, y: p.y, target: null };
   }
@@ -680,7 +716,7 @@
   function findTarget(x, y) {
     let target = null, best = Infinity;
     for (const e of S.enemies) {
-      if (e.dead || e.trap || e.write < 1 || e.ghostA < 0.5) continue;
+      if (e.dead || e.trap || e.write < 1 || e.ghostA < 0.5 || !onScreen(e)) continue;
       const d = Math.hypot(e.x - x, e.y - y) - e.r;
       if (d < 55 && d < best) { best = d; target = e; }
     }
@@ -689,7 +725,7 @@
   function nearestEnemy(from) {
     let target = null, best = Infinity;
     for (const e of S.enemies) {
-      if (e.dead || e.trap || e.write < 1 || e.ghostA < 0.5) continue;
+      if (e.dead || e.trap || e.write < 1 || e.ghostA < 0.5 || !onScreen(e)) continue;
       const d = Math.hypot(e.x - from.x, e.y - from.y);
       if (d < best) { best = d; target = e; }
     }
@@ -698,7 +734,7 @@
   function coneTarget(from, dir, cone) {
     let target = null, best = Infinity;
     for (const e of S.enemies) {
-      if (e.dead || e.trap || e.write < 1 || e.ghostA < 0.5) continue;
+      if (e.dead || e.trap || e.write < 1 || e.ghostA < 0.5 || !onScreen(e)) continue;
       const a = Math.atan2(e.y - from.y, e.x - from.x);
       const da = Math.abs(((a - dir + Math.PI * 3) % (Math.PI * 2)) - Math.PI);
       if (da > cone) continue;
@@ -735,7 +771,7 @@
     const maxV = Math.max(3, Math.round(4 * S.cfg.mult));
     for (let i = 0; i < n; i++) {
       const a = (i / n) * Math.PI * 2 + rand(-0.3, 0.3);
-      const at = { x: clamp(e.x + Math.cos(a) * (e.r + 40), 70, W - 50), y: clamp(e.y + Math.sin(a) * (e.r + 40), PLAY_TOP + 50, PLAY_BOTTOM - 50) };
+      const at = { x: e.x + Math.cos(a) * (e.r + 40), y: e.y + Math.sin(a) * (e.r + 40) };
       spawnEnemy((Math.random() < 0.5 ? -1 : 1) * randi(1, maxV), at, { minion: true });
     }
     addLabel(e.x, e.y - e.r - 20, 'Gelin!', '#2f9a6a', 26);
@@ -764,7 +800,7 @@
       b.life -= dt; b.rot += dt * 8;
       b.x += b.vx * dt; b.y += b.vy * dt;
       if (Math.hypot(b.x - cx, b.y - cy) < 26) { b.life = 0; damagePlayer(Math.round(8 * S.cfg.dmg)); if (S.mode !== 'play') break; }
-      if (b.x < -20 || b.x > W + 20 || b.y < PLAY_TOP - 20 || b.y > PLAY_BOTTOM + 20) b.life = 0;
+      if (!onScreen(b, 40)) b.life = 0;
     }
     S.bullets = S.bullets.filter(b => b.life > 0);
   }
@@ -865,32 +901,43 @@
 
   // ---------- harita: cetveller ve pergel ----------
   const FOOT_DY = 44;                    // çöp adamın ayak noktası (gövdeye göre)
-  const RULER_L = 210, RULER_HW = 12, RULER_UP = 0.62;
+  const RULER_L = 210, RULER_HW = 12, RULER_UP = 0.62, RULER_WOBBLE = 1.35;   // devrilmeden önce 1.35 sn sallanır
   const COMPASS_ZONE = 58, COMPASS_NEED = 10, COMPASS_R = 150, COMPASS_ON = 8, COMPASS_COOL = 15;
 
-  function freeSpot(minPlayer, avoid, margin = 70) {
-    let x = 0, y = 0;
-    for (let k = 0; k < 40; k++) {
-      x = rand(90 + margin * 0.3, W - 60 - margin * 0.3); y = rand(PLAY_TOP + 160, PLAY_BOTTOM - 70);
-      if (Math.hypot(x - S.px, y - S.py - FOOT_DY) > minPlayer && avoid.every(o => Math.hypot(o.x - x, o.y - y) > o.gap)) break;
+  const STAPLE_TRIG = 80, STAPLE_COUNT = 4, STAPLE_R = 280, STAPLE_COOL = 20;
+  const CHUNK = 640;
+
+  // Sonsuz harita: oyuncunun çevresindeki her yeni parçaya cetvel, pergel ve zımba serpiştirilir.
+  function genChunks() {
+    const cx = Math.floor(S.px / CHUNK), cy = Math.floor(S.py / CHUNK);
+    for (let gx = cx - 1; gx <= cx + 1; gx++) for (let gy = cy - 1; gy <= cy + 1; gy++) {
+      const key = gx + ',' + gy;
+      if (S.chunks[key]) continue;
+      S.chunks[key] = true;
+      fillChunk(gx, gy);
     }
-    return { x, y };
+  }
+  function fillChunk(gx, gy) {
+    const objs = [...S.rulers, ...S.compasses, ...S.staplers];
+    const spot = (gap) => {
+      for (let k = 0; k < 30; k++) {
+        const x = gx * CHUNK + rand(60, CHUNK - 60), y = gy * CHUNK + rand(60, CHUNK - 60);
+        if (Math.hypot(x - S.px, y - S.py - FOOT_DY) < 220) continue;
+        if (objs.some(o => Math.hypot(o.x - x, o.y - y) < gap)) continue;
+        const o = { x, y }; objs.push(o); return o;
+      }
+      return null;
+    };
+    const nR = S.stage === 1 ? randi(0, 1) : randi(1, 2);
+    for (let k = 0; k < nR; k++) { const p = spot(190); if (p) S.rulers.push(Object.assign(p, { state: 'up', t: 0, dir: 0, f: 0 })); }
+    if (S.stage >= 2 && Math.random() < 0.4) { const p = spot(260); if (p) S.compasses.push(Object.assign(p, { prog: 0, state: 'idle', t: 0, ang: 0, tick: 0 })); }
+    if (Math.random() < (S.stage === 1 ? 0.25 : 0.4)) { const p = spot(240); if (p) S.staplers.push(Object.assign(p, { state: 'idle', t: 0, arm: 0 })); }
   }
 
   function setupMap() {
-    S.rulers = []; S.compass = null;
-    const avoid = [];
-    if (S.stage >= 2) {
-      const c = freeSpot(170, avoid);
-      S.compass = { x: c.x, y: c.y, prog: 0, state: 'idle', t: 0, ang: 0, tick: 0 };
-      avoid.push({ x: c.x, y: c.y, gap: 190 });
-    }
-    const n = S.stage === 1 ? 2 : 3;
-    for (let k = 0; k < n; k++) {
-      const p = freeSpot(200, avoid);
-      S.rulers.push({ x: p.x, y: p.y, state: 'up', t: 0, dir: 0, f: 0 });
-      avoid.push({ x: p.x, y: p.y, gap: 170 });
-    }
+    S.rulers = []; S.compasses = []; S.staplers = []; S.chains = []; S.chunks = {};
+    updateCamera(0, true);
+    genChunks();
   }
 
   const rulerTip = rl => ({ x: rl.x + Math.cos(rl.dir) * RULER_L, y: rl.y + Math.sin(rl.dir) * RULER_L });
@@ -925,7 +972,7 @@
           Snd.tone(200, 0.15, 'square', 0.03, -40);
         }
       } else if (rl.state === 'wobble') {
-        if (rl.t > 0.35) { rl.state = 'fall'; rl.t = 0; }
+        if (rl.t > RULER_WOBBLE) { rl.state = 'fall'; rl.t = 0; }
       } else if (rl.state === 'fall') {
         rl.f = Math.min(1, rl.t / 0.38);
         if (rl.f >= 1) landRuler(rl);
@@ -947,7 +994,7 @@
     const c = segDist(foot.x, foot.y, rl.x, rl.y, tip.x, tip.y);
     if (c.d < RULER_HW + 22) {
       const hit = collideRuler(rl, foot, 30);
-      S.px = clamp(foot.x, P_MIN_X, P_MAX_X); S.py = clamp(foot.y - FOOT_DY, P_MIN_Y, P_MAX_Y);
+      S.px = foot.x; S.py = foot.y - FOOT_DY;
       if (hit) { S.pvx = hit.nx * 420; S.pvy = hit.ny * 420; }
       S.iframes = 0;
       damagePlayer(Math.round(16 * S.cfg.dmg));
@@ -957,36 +1004,97 @@
   }
 
   function updateCompass(dt) {
-    const C = S.compass;
-    if (!C) return;
-    C.t += dt;
-    const fx = S.px, fy = S.py + FOOT_DY, inZone = Math.hypot(fx - C.x, fy - C.y) < COMPASS_ZONE;
-    if (C.state === 'idle') {
-      C.prog = inZone ? C.prog + dt : Math.max(0, C.prog - dt * 2);
-      if (C.prog >= COMPASS_NEED) {
-        C.state = 'draw'; C.t = 0; C.prog = 0; C.tick = 0;
-        Snd.levelUp();
-        popup(C.x, C.y - 90, [{ text: 'Pergel çiziyor!', color: '#0f7f8f', size: 30, font: NUM_FONT }], 1.3);
+    for (const C of S.compasses) {
+      C.t += dt;
+      const fx = S.px, fy = S.py + FOOT_DY, inZone = Math.hypot(fx - C.x, fy - C.y) < COMPASS_ZONE;
+      if (C.state === 'idle') {
+        C.prog = inZone ? C.prog + dt : Math.max(0, C.prog - dt * 2);
+        if (C.prog >= COMPASS_NEED) {
+          C.state = 'draw'; C.t = 0; C.prog = 0; C.tick = 0;
+          Snd.levelUp();
+          popup(C.x, C.y - 90, [{ text: 'Pergel çiziyor!', color: '#0f7f8f', size: 30, font: NUM_FONT }], 1.3);
+        }
+      } else if (C.state === 'draw') {
+        C.ang = (C.t / 0.9) * Math.PI * 2;
+        if (C.t >= 0.9) { C.state = 'on'; C.t = 0; C.ang = 0; }
+      } else if (C.state === 'on') {
+        C.ang += dt * 5;
+        C.tick += dt;
+        // çemberin içindekiler her saniye 5 değer sıfıra yaklaşır
+        while (C.tick >= 1) {
+          C.tick -= 1;
+          for (const e of S.enemies) if (Math.hypot(e.x - C.x, e.y - C.y) < COMPASS_R + (e.boss ? e.r * 0.4 : 0)) nudge(e, 5);
+          Snd.tone(660, 0.08, 'sine', 0.04, -200);
+        }
+        if (C.t >= COMPASS_ON) { C.state = 'cool'; C.t = 0; }
+      } else if (C.state === 'cool' && C.t >= COMPASS_COOL) {
+        Object.assign(C, { state: 'idle', t: 0, prog: 0 });
       }
-    } else if (C.state === 'draw') {
-      C.ang = (C.t / 0.9) * Math.PI * 2;
-      if (C.t >= 0.9) { C.state = 'on'; C.t = 0; C.ang = 0; }
-    } else if (C.state === 'on') {
-      C.ang += dt * 5;
-      C.tick += dt;
-      // çemberin içindekiler her saniye 5 değer sıfıra yaklaşır
-      while (C.tick >= 1) {
-        C.tick -= 1;
-        for (const e of S.enemies) if (Math.hypot(e.x - C.x, e.y - C.y) < COMPASS_R + (e.boss ? e.r * 0.4 : 0)) nudge(e, 5);
-        Snd.tone(660, 0.08, 'sine', 0.04, -200);
-      }
-      if (C.t >= COMPASS_ON) { C.state = 'cool'; C.t = 0; }
-    } else if (C.state === 'cool' && C.t >= COMPASS_COOL) {
-      // pergel başka bir bölgeye taşınır
-      const p = freeSpot(170, S.rulers.map(r => ({ x: r.x, y: r.y, gap: 150 })));
-      burst(C.x, C.y, 8, '#0f7f8f');
-      Object.assign(C, { x: p.x, y: p.y, state: 'idle', t: 0, prog: 0 });
     }
+  }
+
+  // ---------- zımba: yanından geçince 4 sn sayar, sonra çevredeki sayıları birbirine zımbalar ----------
+  function updateStaplers(dt) {
+    const fx = S.px, fy = S.py + FOOT_DY;
+    for (const st of S.staplers) {
+      st.t += dt;
+      if (st.state === 'idle') {
+        if (Math.hypot(fx - st.x, fy - st.y) < STAPLE_TRIG) { st.state = 'count'; st.t = 0; st.last = STAPLE_COUNT + 1; }
+      } else if (st.state === 'count') {
+        const n = Math.ceil(STAPLE_COUNT - st.t);
+        if (n !== st.last && n > 0) { st.last = n; Snd.tone(880 - n * 80, 0.07, 'square', 0.04); }
+        if (st.t >= STAPLE_COUNT) { st.state = 'slam'; st.t = 0; st.done = false; }
+      } else if (st.state === 'slam') {
+        if (!st.done && st.t >= 0.28) { st.done = true; stapleEnemies(st); }
+        if (st.t >= 0.9) { st.state = 'cool'; st.t = 0; }
+      } else if (st.state === 'cool' && st.t >= STAPLE_COOL) { st.state = 'idle'; st.t = 0; }
+    }
+  }
+
+  function stapleEnemies(st) {
+    S.shake = Math.max(S.shake, 14);
+    Snd.noise(0.15, 0.1, 3000); Snd.tone(1400, 0.06, 'square', 0.06, -900); Snd.tone(180, 0.18, 'sawtooth', 0.06, -60, 0.04);
+    addPart('ring', st.x, st.y, 0, 0, 0.6, '#7d8590', 10, { grow: STAPLE_R });
+    addPart('label', st.x, st.y - 70, 0, -50, 0.9, INK, 44, { text: 'ÇAT!' });
+    const pool = S.enemies.filter(e => !e.dead && !e.boss && !e.trap && !e.chain && e.write >= 1 && Math.hypot(e.x - st.x, e.y - st.y) < STAPLE_R);
+    if (pool.length < 2) { addLabel(st.x, st.y - 110, pool.length ? 'Tek kişi zımbalanmaz!' : 'Kimse yok!', '#8a8580', 22); return; }
+    // tek sıra: oyuncuya en yakını başa geçer, gerisi en yakın komşu sırasıyla dizilir
+    pool.sort((a, b) => Math.hypot(a.x - S.px, a.y - S.py) - Math.hypot(b.x - S.px, b.y - S.py));
+    const line = [pool.shift()];
+    while (pool.length) {
+      const last = line[line.length - 1];
+      let bi = 0, bd = Infinity;
+      pool.forEach((e, i) => { const d = Math.hypot(e.x - last.x, e.y - last.y); if (d < bd) { bd = d; bi = i; } });
+      line.push(pool.splice(bi, 1)[0]);
+    }
+    const chain = { members: line, t: 0 };
+    S.chains.push(chain);
+    for (const e of line) {
+      e.chain = chain; e.pop = 1;
+      // zımba teli zımbadan sayıya uçar
+      for (let k = 0; k < 3; k++) addPart('line', st.x, st.y - 20, (e.x - st.x) * rand(2, 3), (e.y - st.y) * rand(2, 3), 0.25, '#7d8590', 2.5);
+    }
+    popup(st.x, st.y - 120, [{ text: `${line.length} sayı zımbalandı!`, color: '#5b6b8a', size: 28, font: NUM_FONT }, { text: 'tek sıra · %50 yavaş', color: INK, size: 20, font: UI_FONT }], 1.5);
+  }
+
+  function updateChains() {
+    for (const c of S.chains) {
+      c.t += 1;
+      c.members = c.members.filter(e => !e.dead);
+      if (c.members.length < 2) { for (const e of c.members) e.chain = null; c.members = []; }
+    }
+    S.chains = S.chains.filter(c => c.members.length);
+  }
+
+  // ---------- dalga süresi ----------
+  const waveDuration = (s, w) => Math.round(clamp(30 - (s - 1) * 0.9 - (w - 1) * 0.7, 10, 30));
+  function waveTimeUp() {
+    // eski dalganın sayıları 2× hızlanır, yeni dalga hemen gelir
+    let n = 0;
+    for (const e of S.enemies) if (!e.dead && !e.trap && !e.rage && !e.boss) { e.rage = true; e.spd *= 2; n++; }
+    const carry = S.spawnQueue.map(q => Object.assign({}, q, { rage: true, wave: S.wave }));
+    startWave(n + carry.length > 0);
+    S.spawnQueue = carry.concat(S.spawnQueue);
   }
 
   // ---------- eşyalar ve kalemler ----------
@@ -1019,17 +1127,16 @@
   function dropItem(x, y, sure) {
     const r = rollRarity(), pool = ITEMS.filter(it => it.r === r);
     const def = pool[randi(0, pool.length - 1)];
-    S.items.push({ x: clamp(x, 70, W - 50), y: clamp(y, PLAY_TOP + 50, PLAY_BOTTOM - 40), def, t: 0, life: sure ? 18 : 12 });
+    S.items.push({ x, y, def, t: 0 });   // düştüğü yerde kalır, kaybolmaz
     addPart('ring', x, y, 0, 0, 0.5, RARITY[r].color, 10);
     Snd.ammo();
   }
   function updateItems(dt) {
-    const cx = S.px, cy = S.py;
+    const cx = S.px, cy = S.py + 20;
     for (const it of S.items) {
       it.t += dt;
       const d = Math.hypot(it.x - cx, it.y - cy);
-      if (d < 110) { const k = Math.min(1, dt * 4); it.x += (cx - it.x) * k * 0.6; it.y += (cy - it.y) * k * 0.6; }
-      if (d < 42) {
+      if (d < 46) {
         it.dead = true;
         const res = it.def.use(), R = RARITY[it.def.r];
         popup(S.px, S.py - 120, [
@@ -1040,7 +1147,7 @@
         burst(it.x, it.y, 12, R.color);
         Snd.levelUp();
         if (S.mode !== 'play') break;
-      } else if (it.t > it.life) it.dead = true;
+      }
     }
     S.items = S.items.filter(it => !it.dead);
   }
@@ -1174,7 +1281,7 @@
     if (S.fireCD < -0.15) {
       const sh = shoulder();
       let a = null;
-      if (S.pointer.mouse && S.pointer.inPlay) a = Math.atan2(S.pointer.y - sh.y, S.pointer.x - sh.x);
+      if (S.pointer.mouse && S.pointer.inPlay) a = Math.atan2(S.pointer.y + S.cam.y - sh.y, S.pointer.x + S.cam.x - sh.x);
       else if (IS_TOUCH || !S.pointer.mouse) { const t = nearestEnemy(sh); if (t) a = Math.atan2(t.y - sh.y, t.x - sh.x); }
       if (a !== null) S.aim = lerpAngle(S.aim, a, Math.min(1, dt * 10));
     }
@@ -1190,7 +1297,11 @@
     S.buffs.rapid = Math.max(0, S.buffs.rapid - dt);
     S.buffs.shield = Math.max(0, S.buffs.shield - dt);
 
-    // dalga akışı
+    // dalga akışı (boss dalgalarında süre yok)
+    if (S.waveActive && S.waveTime > 0) {
+      S.waveLeft -= dt;
+      if (S.waveLeft <= 0) waveTimeUp();
+    }
     if (S.waveActive) {
       if (S.bossPending) {
         S.spawnT -= dt;
@@ -1206,6 +1317,7 @@
         for (const e of S.enemies) { e.dead = true; burst(e.x, e.y, 8, '#8a8580'); }
         S.enemies.length = 0;
         S.waveActive = false;
+        S.waveTime = 0;
         S.bullets.length = 0;
         if (S.wave >= WAVES) { stageClear(); return; }
         S.nextWaveT = 2.2;
@@ -1226,6 +1338,7 @@
     updateRulers(dt);
     if (S.mode !== 'play') return;
     updateCompass(dt);
+    updateStaplers(dt);
     updateBullets(dt);
     updateOrbs(dt);
     updateItems(dt);
@@ -1247,13 +1360,15 @@
     const r = Math.min(1, dt * 14);
     S.pvx += (mx * MOVE_SPEED - S.pvx) * r;
     S.pvy += (my * MOVE_SPEED - S.pvy) * r;
-    S.px = clamp(S.px + S.pvx * dt, P_MIN_X, P_MAX_X);
-    S.py = clamp(S.py + S.pvy * dt, P_MIN_Y, P_MAX_Y);
+    S.px += S.pvx * dt;
+    S.py += S.pvy * dt;
     // devrilmiş cetveller duvardır: ayak noktası içlerinden geçemez
     const foot = { x: S.px, y: S.py + FOOT_DY };
     for (const rl of S.rulers) if (rl.state === 'down') collideRuler(rl, foot, 16);
-    S.px = clamp(foot.x, P_MIN_X, P_MAX_X);
-    S.py = clamp(foot.y - FOOT_DY, P_MIN_Y, P_MAX_Y);
+    S.px = foot.x;
+    S.py = foot.y - FOOT_DY;
+    updateCamera(dt);
+    genChunks();
     S.walk += Math.hypot(S.pvx, S.pvy) * dt * 0.06;
   }
 
@@ -1270,11 +1385,12 @@
       s.trail.push(s.x, s.y);
       if (s.trail.length > 16) s.trail.splice(0, 2);
       s.x += s.vx * dt; s.y += s.vy * dt;
+      // kalem yalnızca ekranda görünen düşmanlara değer
       for (const e of S.enemies) {
-        if (e.dead || e.write < 1) continue;
+        if (e.dead || e.write < 1 || !onScreen(e)) continue;
         if (Math.hypot(e.x - s.x, e.y - s.y) < e.r + 12) { hitEnemy(e, s); s.dead = true; break; }
       }
-      if (s.x < -60 || s.x > W + 60 || s.y < -60 || s.y > H + 60) s.dead = true;
+      if (!onScreen(s, 30)) s.dead = true;
     }
     S.shots = S.shots.filter(s => !s.dead);
   }
@@ -1299,10 +1415,21 @@
         if (e.dashState === 1) { e.vx *= 0.8; e.vy *= 0.8; continue; }       // atılmadan önce titrer
         if (e.dashState === 2) { e.vx = Math.cos(e.dashDir) * 430; e.vy = Math.sin(e.dashDir) * 430; continue; }
       }
+      // zımbalı sıra: baştaki %50 hızla yürür, diğerleri bir öndekinin arkasına dizilir
+      if (e.chain) {
+        const m = e.chain.members, idx = m.indexOf(e);
+        if (idx > 0) {
+          const pr = m[idx - 1], gx = e.x - pr.x, gy = e.y - pr.y, gl = Math.hypot(gx, gy) || 1, gap = pr.r + e.r + 6;
+          const wx = pr.x + gx / gl * gap, wy = pr.y + gy / gl * gap;
+          e.vx = (wx - e.x) * 8 + pr.vx * 0.5; e.vy = (wy - e.y) * 8 + pr.vy * 0.5;
+          continue;
+        }
+      }
       const dx = cx - e.x, dy = cy - e.y, d = Math.hypot(dx, dy) || 1;
       e.wob += dt * 2.2;
       const nx = -dy / d, ny = dx / d, w = Math.sin(e.wob) * 0.45;
-      let tx = (dx / d + nx * w) * e.spd, ty = (dy / d + ny * w) * e.spd;
+      const spd = e.spd * (e.chain ? 0.5 : 1);
+      let tx = (dx / d + nx * w) * spd, ty = (dy / d + ny * w) * spd;
       if (e.trap) { tx = Math.cos(e.wob * 0.4 + e.id) * e.spd; ty = Math.sin(e.wob * 0.3 + e.id * 2) * e.spd; }
       else if (e.heal && d < 230) { tx = (-dx / d * 0.6 + nx * w) * e.spd; ty = (-dy / d * 0.6 + ny * w) * e.spd; }   // şifacı arkada kalır
       const k = Math.min(1, dt * 2);
@@ -1314,7 +1441,7 @@
       if (a.dead || a.write < 1) continue;
       for (let j = i + 1; j < es.length; j++) {
         const b = es[j];
-        if (b.dead || b.write < 1) continue;
+        if (b.dead || b.write < 1 || (a.chain && a.chain === b.chain)) continue;
         const dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy) || 1;
         const min = a.r + b.r + 8;
         if (d < min) {
@@ -1329,14 +1456,12 @@
     for (const e of es) {
       if (e.dead || e.write < 1) continue;
       e.x += e.vx * dt; e.y += e.vy * dt;
-      const mx = e.boss ? e.r * 0.8 : 0;
       for (const rl of S.rulers) if (rl.state === 'down') collideRuler(rl, e, e.boss ? e.r * 0.7 : e.r * 0.8);
-      e.x = clamp(e.x, 40 + mx, W - 20 - mx);
-      e.y = clamp(e.y, PLAY_TOP + 20 + mx * 0.6, PLAY_BOTTOM - 35 - mx * 0.6);
       if (Math.hypot(cx - e.x, cy - e.y) < (e.boss ? e.r * 0.85 : e.r) + 26) hurtPlayer(e);
       if (S.mode !== 'play') break;
     }
     S.enemies = S.enemies.filter(e => !e.dead);
+    updateChains();
   }
 
   function updateOrbs(dt) {
@@ -1410,6 +1535,15 @@
       ctx.translate(e.x, e.y);
       ctx.fillStyle = 'rgba(0,0,0,0.07)';
       ctx.beginPath(); ctx.ellipse(4, e.r * 0.75, e.r * 0.8, 7, 0, 0, Math.PI * 2); ctx.fill();
+      if (e.rage) {
+        // 2× hızlı: kırmızı hız çizgileri
+        const a = Math.atan2(e.vy, e.vx);
+        ctx.strokeStyle = 'rgba(212,58,47,0.55)'; ctx.lineWidth = 3; ctx.lineCap = 'round';
+        for (let k = -1; k <= 1; k++) {
+          const ox = -Math.sin(a) * k * 12, oy = Math.cos(a) * k * 12, l0 = e.r * 0.9, l1 = l0 + 14 + (k === 0 ? 10 : 0);
+          ctx.beginPath(); ctx.moveTo(-Math.cos(a) * l0 + ox, -Math.sin(a) * l0 + oy); ctx.lineTo(-Math.cos(a) * l1 + ox, -Math.sin(a) * l1 + oy); ctx.stroke();
+        }
+      }
       ctx.rotate(noise(e.id * 13 + boil) * 0.04 + Math.sin(e.wob) * 0.07);
       let sc = (1 + e.pop * 0.45) * (e.shard ? 0.75 : 1);
       if (e.write < 1) sc *= Math.max(0.01, easeOutBack(e.write));
@@ -1508,13 +1642,14 @@
   function drawRulers(boil, front) {
     const fy = S.py + FOOT_DY;
     for (const rl of S.rulers) {
+      if (!onScreen(rl, RULER_L + 20)) continue;
       const up = rl.state !== 'down';
       if (up && front !== (rl.y > fy)) continue;
       if (!up && front) continue;
       if (rl.state === 'down') { const t = rulerTip(rl); drawRulerShape(rl.x, rl.y, t.x, t.y, true, rl.x); continue; }
       // dik ya da devriliyor: 3B ucun ekrana izdüşümü
       const ease = rl.state === 'fall' ? rl.f * rl.f : 0;
-      const phi = ease * Math.PI / 2 + (rl.state === 'wobble' ? Math.sin(rl.t * 40) * 0.06 : 0);
+      const phi = ease * Math.PI / 2 + (rl.state === 'wobble' ? Math.sin(rl.t * 40) * (0.03 + 0.06 * rl.t / RULER_WOBBLE) : 0);
       const dir = rl.state === 'up' ? -Math.PI / 2 : rl.dir;
       const hor = Math.sin(phi) * RULER_L, ver = Math.cos(phi) * RULER_L * RULER_UP;
       const tx = rl.x + Math.cos(dir) * hor, ty = rl.y + Math.sin(dir) * hor - ver;
@@ -1529,8 +1664,9 @@
   }
 
   function drawCompass(boil) {
-    const C = S.compass;
-    if (!C) return;
+    for (const C of S.compasses) if (Math.abs(C.x - S.px) < W + COMPASS_R && Math.abs(C.y - S.py) < H) drawOneCompass(C, boil);
+  }
+  function drawOneCompass(C, boil) {
     ctx.save();
     if (C.state === 'draw' || C.state === 'on') {
       const end = C.state === 'draw' ? C.ang : Math.PI * 2;
@@ -1575,11 +1711,89 @@
     ctx.restore();
   }
 
+  // Masa zımbası (yandan): koyu taban + menteşeli renkli kol. Sayarken titrer, sonra çat diye iner.
+  function drawStaplers(boil, front) {
+    const fy = S.py + FOOT_DY;
+    for (const st of S.staplers) {
+      if (front !== (st.y > fy)) continue;
+      if (!onScreen(st, 300)) continue;
+      ctx.save();
+      // menzil halkası
+      if (st.state === 'count' || st.state === 'slam') {
+        ctx.strokeStyle = 'rgba(91,107,138,0.5)'; ctx.lineWidth = 3; ctx.setLineDash([12, 8]); ctx.lineDashOffset = -clock * 60;
+        ctx.beginPath(); ctx.arc(st.x, st.y, STAPLE_R, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+        ctx.fillStyle = 'rgba(91,107,138,0.06)'; ctx.fill();
+      } else if (st.state === 'idle') {
+        ctx.strokeStyle = 'rgba(91,107,138,0.4)'; ctx.lineWidth = 2; ctx.setLineDash([5, 6]);
+        ctx.beginPath(); ctx.arc(st.x, st.y, STAPLE_TRIG, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+      }
+      let arm = 0, jx = 0, sq = 1;
+      if (st.state === 'count') { const k = st.t / STAPLE_COUNT; arm = -0.15 - k * 0.35 + Math.sin(st.t * (10 + k * 30)) * 0.05 * (1 + k * 2); jx = Math.sin(st.t * 50) * k * 2.5; }
+      else if (st.state === 'slam') { arm = st.t < 0.18 ? -0.5 - st.t * 2 : (st.t < 0.28 ? -0.86 + (st.t - 0.18) * 8.6 : 0); sq = st.t > 0.28 && st.t < 0.5 ? 1 - Math.sin((st.t - 0.28) / 0.22 * Math.PI) * 0.25 : 1; }
+      else if (st.state === 'cool') ctx.globalAlpha = 0.55;
+      ctx.translate(st.x + jx, st.y);
+      ctx.scale(1 + (1 - sq) * 0.6, sq);
+      ctx.fillStyle = 'rgba(0,0,0,0.12)'; ctx.beginPath(); ctx.ellipse(4, 4, 50, 9, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = INK; ctx.lineWidth = 3; ctx.lineJoin = 'round';
+      rrect(-46, -12, 92, 14, 5); ctx.fillStyle = '#3f444c'; ctx.fill(); ctx.stroke();
+      ctx.save(); ctx.translate(-40, -14); ctx.rotate(arm);
+      rrect(-4, -16, 90, 17, 7); ctx.fillStyle = '#d8423a'; ctx.fill(); ctx.stroke();
+      ctx.fillStyle = 'rgba(255,255,255,0.35)'; ctx.fillRect(6, -13, 60, 3);
+      ctx.restore();
+      ctx.fillStyle = '#9aa1ab'; ctx.beginPath(); ctx.arc(-40, -14, 5, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.restore();
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      if (st.state === 'count') {
+        const n = Math.ceil(STAPLE_COUNT - st.t), f = 1 - (st.t % 1);
+        ctx.font = `${44 + f * 22}px ${NUM_FONT}`; ctx.lineWidth = 6; ctx.strokeStyle = PAPER; ctx.lineJoin = 'round';
+        ctx.strokeText(String(n), st.x, st.y - 70); ctx.fillStyle = '#5b6b8a'; ctx.fillText(String(n), st.x, st.y - 70);
+      } else if (st.state === 'cool') {
+        ctx.font = `16px ${UI_FONT}`; ctx.fillStyle = INK; ctx.fillText(`${Math.ceil(STAPLE_COOL - st.t)} sn`, st.x, st.y + 26);
+      }
+    }
+  }
+
+  // Zımbalı sayıların arasındaki tel
+  function drawChains() {
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    for (const c of S.chains) {
+      const m = c.members;
+      for (let i = 1; i < m.length; i++) {
+        const a = m[i - 1], b = m[i];
+        const dx = b.x - a.x, dy = b.y - a.y, l = Math.hypot(dx, dy) || 1, ux = dx / l, uy = dy / l;
+        const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2, half = Math.min(30, l * 0.35), leg = 9;
+        const p0x = mx - ux * half, p0y = my - uy * half, p1x = mx + ux * half, p1y = my + uy * half;
+        for (const [col, w] of [[INK, 6], ['#b7bec8', 3]]) {
+          ctx.strokeStyle = col; ctx.lineWidth = w;
+          ctx.beginPath();
+          ctx.moveTo(p0x + uy * leg, p0y - ux * leg); ctx.lineTo(p0x, p0y); ctx.lineTo(p1x, p1y); ctx.lineTo(p1x + uy * leg, p1y - ux * leg);
+          ctx.stroke();
+        }
+      }
+    }
+  }
+
+  // Ekran dışındaki eşya ve sayıları kenarda oklarla göster
+  function drawOffscreen() {
+    const cx = S.px - S.cam.x, cy = S.py - 17 - S.cam.y;
+    const L = 16, R = W - 16, T = PLAY_TOP + 14, B = PLAY_BOTTOM - 14;
+    const arrow = (wx, wy, color, size) => {
+      const dx = wx - S.cam.x - cx, dy = wy - S.cam.y - cy;
+      const k = Math.min(dx > 0 ? (R - cx) / dx : dx < 0 ? (L - cx) / dx : Infinity, dy > 0 ? (B - cy) / dy : dy < 0 ? (T - cy) / dy : Infinity);
+      const x = cx + dx * k, y = cy + dy * k, a = Math.atan2(dy, dx);
+      ctx.save(); ctx.translate(x, y); ctx.rotate(a);
+      ctx.fillStyle = color; ctx.strokeStyle = PAPER; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(size, 0); ctx.lineTo(-size * 0.7, -size * 0.7); ctx.lineTo(-size * 0.7, size * 0.7); ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.restore();
+    };
+    for (const e of S.enemies) if (!e.dead && !e.trap && !onScreen(e)) arrow(e.x, e.y, e.boss ? '#e0407a' : (e.rage ? RED : 'rgba(31,29,27,0.55)'), e.boss ? 14 : 7);
+    for (const it of S.items) if (!onScreen(it)) arrow(it.x, it.y, RARITY[it.def.r].color, 11);
+  }
+
   function drawItems() {
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     for (const it of S.items) {
       const R = RARITY[it.def.r];
-      if (it.life - it.t < 3 && Math.floor(clock * 8) % 2 === 0) continue;
       const bob = Math.sin(clock * 4 + it.x) * 4;
       ctx.save(); ctx.translate(it.x, it.y + bob); ctx.rotate(Math.sin(clock * 2 + it.y) * 0.12);
       ctx.fillStyle = R.color; ctx.globalAlpha = 0.25;
@@ -1600,7 +1814,7 @@
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round';
       ctx.font = `22px ${NUM_FONT}`; ctx.lineWidth = 5; ctx.strokeStyle = PAPER;
       const y = S.py - 130 + Math.sin(clock * 5 + 1) * 2;
-      const x = clamp(S.px, 130, W - 130);
+      const x = S.px;
       ctx.strokeText(txt, x, y);
       ctx.fillStyle = '#d69a00'; ctx.fillText(txt, x, y);
       ctx.restore();
@@ -1612,7 +1826,7 @@
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round';
     ctx.font = `22px ${NUM_FONT}`; ctx.lineWidth = 5; ctx.strokeStyle = PAPER;
     const y = S.py - 104 + Math.sin(clock * 5) * 2;
-    const x = clamp(S.px, 100, W - 100);
+    const x = S.px;
     ctx.strokeText(txt, x, y);
     ctx.fillStyle = C.par ? '#c0392b' : '#2f6fd1'; ctx.fillText(txt, x, y);
     ctx.restore();
@@ -1908,7 +2122,7 @@
         ctx.restore();
       } else if (p.type === 'ring') {
         ctx.strokeStyle = p.color; ctx.lineWidth = 3 * k;
-        ctx.beginPath(); ctx.arc(p.x, p.y, 20 + (1 - k) * 60, 0, Math.PI * 2); ctx.stroke();
+        ctx.beginPath(); ctx.arc(p.x, p.y, 20 + (1 - k) * (p.grow || 60), 0, Math.PI * 2); ctx.stroke();
       } else if (p.type === 'ghost') {
         ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
         ctx.globalAlpha = k * 0.8;
@@ -1985,7 +2199,14 @@
     const left = Math.max(0, S.waveTotal - S.resolved);
     const boss = isBossWave(S.wave);
     ctx.font = `20px ${UI_FONT}`; ctx.fillStyle = boss ? '#e0407a' : INK;
-    ctx.fillText(`Dalga ${Math.max(1, S.wave)}/${WAVES}${boss ? ' · BOSS' : ` · ${left} kaldı`}`, W - 24, 76);
+    const timed = S.waveActive && S.waveTime > 0;
+    const tLeft = Math.max(0, Math.ceil(S.waveLeft));
+    ctx.fillText(`Dalga ${Math.max(1, S.wave)}/${WAVES}${boss ? ' · BOSS' : ` · ${left} kaldı`}`, W - 24 - (timed ? 58 : 0), 76);
+    if (timed) {
+      const urgent = tLeft <= 5;
+      ctx.font = `${urgent ? 24 : 20}px ${NUM_FONT}`; ctx.fillStyle = urgent && Math.floor(clock * 4) % 2 ? RED : (urgent ? '#e0453a' : '#0f7f8f');
+      ctx.fillText(`⏱${tLeft}`, W - 24, 77);
+    }
     // seviye + XP barı
     ctx.textAlign = 'left';
     drawText(`Sv ${S.level}`, 24, 111, 26, '#7a4bd8', NUM_FONT, boil + 3);
@@ -2072,7 +2293,7 @@
     if (S.mode !== 'play') return;
     let t = null;
     if (S.aimTouch) t = aimInfo().target;
-    else if (p.mouse && p.inPlay) t = findTarget(p.x, p.y);
+    else if (p.mouse && p.inPlay) t = findTarget(p.x + S.cam.x, p.y + S.cam.y);
     ctx.lineWidth = 2;
     if (t) {
       ctx.strokeStyle = 'rgba(212,58,47,0.7)';
@@ -2088,20 +2309,28 @@
     ctx.drawImage(bg, 0, 0);
     const sx = canvas.width / W, sy = canvas.height / H;
     const ox = S.shake > 0 ? rand(-1, 1) * S.shake : 0, oy = S.shake > 0 ? rand(-1, 1) * S.shake : 0;
-    ctx.setTransform(sx, 0, 0, sy, ox * sx, oy * sy);
+    ctx.setTransform(sx, 0, 0, sy, (ox - S.cam.x) * sx, (oy - S.cam.y) * sy);
     const inGame = S.mode !== 'menu' && S.mode !== 'stages';
-    if (inGame) { drawCompass(boil); drawRulers(boil, false); }
+    drawPaper();
+    // dünya: yalnızca oyun alanında görünür
+    ctx.save();
+    ctx.beginPath(); ctx.rect(S.cam.x - 20, S.cam.y + PLAY_TOP - 6, W + 40, PLAY_BOTTOM - PLAY_TOP + 16); ctx.clip();
+    if (inGame) { drawCompass(boil); drawStaplers(boil, false); drawRulers(boil, false); }
     drawAim();
     drawItems();
     drawOrbs();
+    drawChains();
     drawEnemies(boil);
-    if (inGame) { drawPlayer(boil); drawRulers(boil, true); drawCombo(); }
+    if (inGame) { drawPlayer(boil); drawRulers(boil, true); drawStaplers(boil, true); drawCombo(); }
     drawShots();
     drawBullets();
     drawParts();
     drawPopups();
+    ctx.restore();
+    ctx.setTransform(sx, 0, 0, sy, ox * sx, oy * sy);
     drawBanner();
     ctx.setTransform(sx, 0, 0, sy, 0, 0);
+    if (inGame) drawOffscreen();
     drawTouchControls();
     if (S.mode !== 'menu' && S.mode !== 'stages') { drawHUD(boil); drawBossBar(); }
     drawCards(boil);
@@ -2556,7 +2785,7 @@
   // ---------- başlat ----------
   if (/[?&]debug\b/.test(location.search)) {
     window.__sm = {
-      get S() { return S; }, get save() { return save; }, render, update, updateFx, spawnEnemy, spawnSpec, isPrime, spawnBoss, dropItem, nudge, startGame, startStage, showStages, fire, gainXP, chooseUpgrade, openQuiz, quizKey, resolveQuiz, makeQuestion, stageCfg, bossHp, BOSS_TYPES, bossFor, wPow, xpNeed,
+      get S() { return S; }, get save() { return save; }, render, update, updateFx, spawnEnemy, spawnSpec, isPrime, waveTimeUp, stapleEnemies, onScreen, spawnBoss, dropItem, nudge, startGame, startStage, showStages, fire, gainXP, chooseUpgrade, openQuiz, quizKey, resolveQuiz, makeQuestion, stageCfg, bossHp, BOSS_TYPES, bossFor, wPow, xpNeed,
       seekIntro(t) { if (S.mode !== 'intro') startIntro(); introT = t; }, INTRO_LEN,
     };
   }

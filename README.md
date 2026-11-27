@@ -30,12 +30,22 @@ Yeni türler bölümler ilerledikçe açılır (kahve 1. bölümün sonundan, ş
 
 ## Harita
 
+- Harita **sonsuz**: kamera oyuncuyu takip eder, yürüdükçe defter sayfası uzar. Yeni bölgelere cetvel, pergel ve zımba serpiştirilir.
+- Kalem yalnızca **ekranda görünen** sayılara değer. Ekran dışındaki sayılar ve eşyalar kenarda okla gösterilir.
 - Tek bölümler **çizgili**, çift bölümler **kareli** defter.
-- **Cetvel**: dik durur. Önünden (aşağısından) geçince sana doğru devrilir; altında kalırsan dışarı itilir ve hasar alırsın. Devrilen cetvel duvar olur: oyuncu, düşman ve boss geçemez.
-- **Pergel** (2. bölümden itibaren): halkasında 10 saniye durursan (çıkınca dolum geri akar) pergel dönerek bir çember çizer. 8 saniye boyunca çemberdeki sayılar her saniye 5 sıfıra yaklaşır. Sonra 15 saniye dinlenir ve başka bir yere taşınır.
+- **Cetvel**: dik durur. Önünden (aşağısından) geçince 1,35 sn sallanır, sonra sana doğru devrilir; altında kalırsan dışarı itilir ve hasar alırsın. Devrilen cetvel duvar olur: oyuncu, düşman ve boss geçemez.
+- **Pergel** (2. bölümden itibaren): halkasında 10 saniye durursan (çıkınca dolum geri akar) pergel dönerek bir çember çizer. 8 saniye boyunca çemberdeki sayılar her saniye 5 sıfıra yaklaşır. Sonra 15 saniye dinlenir.
+- **Zımba**: yanından geçince 4'ten geri sayar, sonra çat diye iner ve geniş bir alandaki sayıları birbirine zımbalar. Zımbalı sayılar tek sıra hâlinde, %50 yavaş birlikte yürür. 20 saniye sonra yeniden kullanılır.
+
+## Dalga süresi
+
+- Boss olmayan dalgaların süresi var: zorluğa göre 30 saniyeden 10 saniyeye iner.
+- Süre bitince yeni dalga hemen başlar; eski dalganın kalan sayıları (ve henüz doğmamışları) 2× hızlanır.
+- Boss dalgalarında süre yok.
 
 ## Eşyalar ve tek/çift kombosu
 
+- Eşyalar düştükleri yerde kalır, kaybolmaz; gidip almak gerekir.
 - Her öldürmede %3 eşya düşme şansı. Nadirlik: Sıradan %60, Nadir %27, Epik %10, Efsanevi %3.
 - Eşyalar: Yara bandı, Mürekkep şişesi, Yedek uçlar, Kalemtıraş, Silgi kalkanı; kalemler: Renkli kalem (bir silah +1), Altın dolma kalem (tüm silahlar +1).
 - Üst üste 10 tek ya da 10 çift sayı öldürürsen sonuncusundan kesin bir eşya düşer (nadirlik aynı tablodan). 3. öldürmeden sonra oyuncunun üstünde `7 tek kaldı` yazar; kombo bozulursa yazı ve ödül gider. Normal %3 şans bundan etkilenmez. Boss ve üslü sayı parçaları komboya sayılmaz.
