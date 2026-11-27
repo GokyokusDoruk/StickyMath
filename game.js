@@ -189,6 +189,7 @@
       sel: 0, cardShake: [0, 0, 0],
       rulers: [], compass: null, items: [], seen: {},
       combo: { par: -1, n: 0, fade: 0 },   // tek/çift kombosu: par 0 = çift, 1 = tek
+      prime: 0,                            // üst üste öldürülen pozitif asal sayı sayısı
       buffs: { rapid: 0, shield: 0 },
       px: W / 2, py: P_MAX_Y - 60, pvx: 0, pvy: 0, walk: 0,
       aim: -Math.PI / 2, recoil: 0, hurt: 0, shake: 0,
@@ -466,6 +467,7 @@
     }
     if (!e.boss && !e.shard) {
       comboKill(e);
+      primeKill(e);
       if (Math.random() < ITEM_DROP_RATE) dropItem(e.x, e.y);   // standart eşya düşürme
     }
     Snd.kill();
@@ -473,6 +475,23 @@
 
   // Tek/çift kombosu: aynı türden 10 öldürme = kesin eşya. Yazı 3. öldürmede çıkar.
   const COMBO_GOAL = 10, COMBO_SHOW = 3;
+  // Asal sayı kombosu: 2 pozitif asal üst üste = kombo; sonraki her asal kesin eşya düşürür.
+  const PRIME_START = 2;
+  const isPrime = n => { if (n < 2 || n % 1) return false; for (let d = 2; d * d <= n; d++) if (n % d === 0) return false; return true; };
+  function primeKill(e) {
+    if (!isPrime(e.v0)) {
+      if (S.prime >= PRIME_START) addLabel(clamp(S.px, 130, W - 130), S.py - 136, 'Asal kombo bozuldu', '#8a8580', 20);
+      S.prime = 0;
+      return;
+    }
+    S.prime++;
+    if (S.prime === PRIME_START) { addLabel(clamp(S.px, 130, W - 130), S.py - 136, 'Asal sayı kombosu!', '#d69a00', 24); Snd.select(); }
+    else if (S.prime > PRIME_START) {
+      dropItem(e.x, e.y, true);
+      addLabel(e.x, e.y - 40, `${e.v0} asal!`, '#d69a00', 24);
+    }
+  }
+
   function comboKill(e) {
     const par = Math.abs(e.v0) % 2, C = S.combo;
     if (C.par === par) C.n++;
@@ -1575,6 +1594,17 @@
   }
 
   function drawCombo() {
+    if (S.prime >= PRIME_START) {
+      const txt = S.prime > PRIME_START ? `Asal sayı kombosu ×${S.prime - PRIME_START}` : 'Asal sayı kombosu';
+      ctx.save();
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round';
+      ctx.font = `22px ${NUM_FONT}`; ctx.lineWidth = 5; ctx.strokeStyle = PAPER;
+      const y = S.py - 130 + Math.sin(clock * 5 + 1) * 2;
+      const x = clamp(S.px, 130, W - 130);
+      ctx.strokeText(txt, x, y);
+      ctx.fillStyle = '#d69a00'; ctx.fillText(txt, x, y);
+      ctx.restore();
+    }
     const C = S.combo;
     if (C.n < COMBO_SHOW || C.n >= COMBO_GOAL) return;
     const txt = `${COMBO_GOAL - C.n} ${C.par ? 'tek' : 'çift'} kaldı`;
@@ -1582,8 +1612,9 @@
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round';
     ctx.font = `22px ${NUM_FONT}`; ctx.lineWidth = 5; ctx.strokeStyle = PAPER;
     const y = S.py - 104 + Math.sin(clock * 5) * 2;
-    ctx.strokeText(txt, S.px, y);
-    ctx.fillStyle = C.par ? '#c0392b' : '#2f6fd1'; ctx.fillText(txt, S.px, y);
+    const x = clamp(S.px, 100, W - 100);
+    ctx.strokeText(txt, x, y);
+    ctx.fillStyle = C.par ? '#c0392b' : '#2f6fd1'; ctx.fillText(txt, x, y);
     ctx.restore();
   }
 
@@ -2525,7 +2556,7 @@
   // ---------- başlat ----------
   if (/[?&]debug\b/.test(location.search)) {
     window.__sm = {
-      get S() { return S; }, get save() { return save; }, render, update, updateFx, spawnEnemy, spawnSpec, spawnBoss, dropItem, nudge, startGame, startStage, showStages, fire, gainXP, chooseUpgrade, openQuiz, quizKey, resolveQuiz, makeQuestion, stageCfg, bossHp, BOSS_TYPES, bossFor, wPow, xpNeed,
+      get S() { return S; }, get save() { return save; }, render, update, updateFx, spawnEnemy, spawnSpec, isPrime, spawnBoss, dropItem, nudge, startGame, startStage, showStages, fire, gainXP, chooseUpgrade, openQuiz, quizKey, resolveQuiz, makeQuestion, stageCfg, bossHp, BOSS_TYPES, bossFor, wPow, xpNeed,
       seekIntro(t) { if (S.mode !== 'intro') startIntro(); introT = t; }, INTRO_LEN,
     };
   }

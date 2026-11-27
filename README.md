@@ -39,6 +39,7 @@ Yeni türler bölümler ilerledikçe açılır (kahve 1. bölümün sonundan, ş
 - Her öldürmede %3 eşya düşme şansı. Nadirlik: Sıradan %60, Nadir %27, Epik %10, Efsanevi %3.
 - Eşyalar: Yara bandı, Mürekkep şişesi, Yedek uçlar, Kalemtıraş, Silgi kalkanı; kalemler: Renkli kalem (bir silah +1), Altın dolma kalem (tüm silahlar +1).
 - Üst üste 10 tek ya da 10 çift sayı öldürürsen sonuncusundan kesin bir eşya düşer (nadirlik aynı tablodan). 3. öldürmeden sonra oyuncunun üstünde `7 tek kaldı` yazar; kombo bozulursa yazı ve ödül gider. Normal %3 şans bundan etkilenmez. Boss ve üslü sayı parçaları komboya sayılmaz.
+- **Asal sayı kombosu**: üst üste 2 pozitif asal sayı öldürünce oyuncunun üstünde `Asal sayı kombosu` yazar. Kombo sürdükçe sonraki her asal sayıdan %100 eşya düşer. Asal olmayan (negatif, 0, 1 dahil) bir öldürme komboyu bozar. Sayının başlangıç değerine bakılır.
 
 ## XP ve seviye
 
