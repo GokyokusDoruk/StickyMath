@@ -8,16 +8,38 @@ Tarayıcıda oynanan matematik aksiyon oyunu. Sayılar defter sayfasında çöp 
 |---|---|---|
 | Yürü | Yön tuşları / WASD | Ekranın sol yarısı (joystick) |
 | Nişan + ateş | Fare (basılı tut) / Space | Ekranın sağ yarısı: dokun = en yakın düşman, sürükle = o yöne |
-| Silah seç | 1–4, Q/E, tekerlek, kartlar | Kartlara dokun |
+| Silah seç | 1–3, Q/E, tekerlek, kartlar | Kartlara dokun |
 | Mola | Esc / P | II butonu |
 
 ## Silahlar
 
 - `−n`, `+n`: sınırsız. Doğru yöne vuruş sıfırı geçmez, sıfırda durur.
 - `÷n`: sayıyı böler (kalan atılır).
-- `×n`: sayıyı işaretler; 6 saniye boyunca `+`/`−` vuruşları ×n güçlü.
-- `÷` ve `×` 5 mermiyle başlar, her 20 saniyede 1 mermi dolar.
-- Seviye 1'de `−1 +1 ÷2 ×2`. Her geliştirme 1 artırır, her silah 30 seviyeye kadar.
+- `÷` 5 mermiyle başlar, her 20 saniyede 1 mermi dolar.
+- Seviye 1'de `−1 +1 ÷2`. Her geliştirme 1 artırır, her silah 30 seviyeye kadar.
+
+## Özel düşmanlar
+
+- **Sıfır tuzağı** (`0`): zarar vermez, kalabalığın arasında dolaşır. `+`/`−` değerse uyanıp düşmana dönüşür; `÷` etkisizdir. Dalga bitince kendiliğinden gider.
+- **Mutlak değer** (`|−6|`): iki dikey çizgi zırhtır. Her vuruş bir parça kırar; zırh bitince sayı `|−6| = 6` olur.
+- **Üslü sayı** (`2³`, `3²`): ilk vuruşta açılır ve değeri kadar küçük sayıya bölünür (en fazla 9 parça, toplam korunur).
+- **Şifacı** (`+1` rozeti): 3 saniyede bir aurasındaki diğer sayıları 1 büyütür. Oyuncudan uzak durur.
+- **Kahve lekeli**: leke 10 saniyede yavaş yavaş kurur; kuruyana kadar sayı görünmez ama vurulabilir.
+
+Yeni türler bölümler ilerledikçe açılır (kahve 1. bölümün sonundan, şifacı 4.–5. bölümden itibaren).
+
+## Harita
+
+- Tek bölümler **çizgili**, çift bölümler **kareli** defter.
+- **Cetvel**: dik durur. Önünden (aşağısından) geçince sana doğru devrilir; altında kalırsan dışarı itilir ve hasar alırsın. Devrilen cetvel duvar olur: oyuncu, düşman ve boss geçemez.
+- **Pergel** (2. bölümden itibaren): halkasında 10 saniye durursan (çıkınca dolum geri akar) pergel dönerek bir çember çizer. 8 saniye boyunca çemberdeki sayılar her saniye 5 sıfıra yaklaşır. Sonra 15 saniye dinlenir ve başka bir yere taşınır.
+
+## Eşyalar ve tek/çift kombosu
+
+- Her öldürmede %3 eşya düşme şansı. Nadirlik: Sıradan %60, Nadir %27, Epik %10, Efsanevi %3.
+- Eşyalar: Yara bandı, Mürekkep şişesi, Yedek uçlar, Kalemtıraş, Silgi kalkanı; kalemler: Renkli kalem (bir silah +1), Altın dolma kalem (tüm silahlar +1).
+- Üst üste 10 tek ya da 10 çift sayı öldürürsen sonuncusundan kesin bir eşya düşer (nadirlik aynı tablodan). 3. öldürmeden sonra oyuncunun üstünde `7 tek kaldı` yazar; kombo bozulursa yazı ve ödül gider. Normal %3 şans bundan etkilenmez. Boss ve üslü sayı parçaları komboya sayılmaz.
+- **Asal sayı kombosu**: üst üste 2 pozitif asal sayı öldürünce oyuncunun üstünde `Asal sayı kombosu` yazar. Kombo sürdükçe sonraki her asal sayıdan %100 eşya düşer. Asal olmayan (negatif, 0, 1 dahil) bir öldürme komboyu bozar. Sayının başlangıç değerine bakılır.
 
 ## XP ve seviye
 
