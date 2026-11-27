@@ -3,10 +3,11 @@
   // ---------- sabitler ----------
   const W = 540, H = 960;
   const PLAY_TOP = 130, PLAY_BOTTOM = 805;
-  const CARD_Y = 832, CARD_H = 108, CARD_W = 118, CARD_GAP = 10;
-  const CARD_X0 = (W - (4 * CARD_W + 3 * CARD_GAP)) / 2;
+  const NW = 3;                         // silah sayısı: −, +, ÷
+  const CARD_Y = 832, CARD_H = 108, CARD_W = 150, CARD_GAP = 14;
+  const CARD_X0 = (W - (NW * CARD_W + (NW - 1) * CARD_GAP)) / 2;
   const PX = 455, PY = 560;             // açılış animasyonundaki çöp adamın yeri
-  const INK = '#1f1d1b', NEG_INK = '#1d3d7a', RED = '#d43a2f', PAPER = '#f3efe6', MARK = '#c2620a';
+  const INK = '#1f1d1b', NEG_INK = '#1d3d7a', RED = '#d43a2f', PAPER = '#f3efe6';
   const NUM_FONT = '"Permanent Marker", "Comic Sans MS", cursive';
   const UI_FONT = '"Gochi Hand", "Comic Sans MS", cursive';
   const SHOT_SPEED = 980;
@@ -16,8 +17,7 @@
   const PLAYER_MAX_HP = 100;
   const HIT_IFRAMES = 0.9;
   const MAX_WLV = 30;
-  const AMMO_CAP = 5, AMMO_REGEN = 20;  // ÷ ve ×: kapasite ve kaç saniyede 1 mermi
-  const MARK_TIME = 6;                  // × işaretinin süresi
+  const AMMO_CAP = 5, AMMO_REGEN = 20;  // ÷: kapasite ve kaç saniyede 1 mermi
   const P_MIN_X = 40, P_MAX_X = W - 30, P_MIN_Y = PLAY_TOP + 80, P_MAX_Y = PLAY_BOTTOM - 55;
   const IS_TOUCH = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
 
@@ -36,12 +36,11 @@
   const radiusFor = v => 18 + fmt(v).length * 10;
 
   // ---------- silahlar ----------
-  // 0: −, 1: +, 2: ÷, 3: ×. Seviye 1'de −1, +1, ÷2, ×2; her geliştirme 1 artırır (en fazla 30 seviye).
+  // 0: −, 1: +, 2: ÷. Seviye 1'de −1, +1, ÷2; her geliştirme 1 artırır (en fazla 30 seviye).
   const WEAPONS = [
     { sym: MINUS, name: 'Çıkarma', limited: false },
     { sym: '+', name: 'Toplama', limited: false },
     { sym: '÷', name: 'Bölme', limited: true },
-    { sym: '×', name: 'Çarpan', limited: true },
   ];
   const wPow = (i, lv) => (i < 2 ? lv : lv + 1);
   const wLabel = (i, lv) => WEAPONS[i].sym + wPow(i, lv);
@@ -49,7 +48,6 @@
     'Pozitif sayıyı sıfıra yaklaştırır',
     'Negatif sayıyı sıfıra yaklaştırır',
     'Sayıyı böler (kalan atılır)',
-    'İşaretler: + ve − vuruşları katlanır',
   ];
 
   // ---------- XP ----------
@@ -59,7 +57,7 @@
   const WAVE_HINTS = {
     1: IS_TOUCH ? 'Sol yarı: yürü · Sağ yarı: ateş' : 'Yön tuşları / WASD ile yürü',
     2: 'Pozitife −, negatife + vur',
-    3: '× ile işaretle, vuruşlar katlansın',
+    3: '÷ ile büyük sayıları parçala',
   };
 
   // ---------- bölümler ----------
@@ -182,13 +180,16 @@
       rp: 0, rpShown: 0, rpPop: 0,
       hp: PLAYER_MAX_HP, maxHp: PLAYER_MAX_HP, hpShown: PLAYER_MAX_HP, iframes: 0,
       xp: 0, xpShown: 0, level: 1, pendingLevels: 0,
-      wlv: [1, 1, 1, 1],
-      ammo: [Infinity, Infinity, AMMO_CAP, AMMO_CAP], ammoCap: AMMO_CAP, ammoT: [0, 0, 0, 0],
+      wlv: [1, 1, 1],
+      ammo: [Infinity, Infinity, AMMO_CAP], ammoCap: AMMO_CAP, ammoT: [0, 0, 0],
       stage: 1, cfg: stageCfg(1), bullets: [], quiz: null,
       wave: 0, waveTotal: 0, resolved: 0,
       spawnQueue: [], spawnT: 0, waveActive: false, nextWaveT: 0, bossPending: null,
       banner: null,
-      sel: 0, cardShake: [0, 0, 0, 0],
+      sel: 0, cardShake: [0, 0, 0],
+      rulers: [], compass: null, items: [], seen: {},
+      combo: { par: -1, n: 0, fade: 0 },   // tek/çift kombosu: par 0 = çift, 1 = tek
+      buffs: { rapid: 0, shield: 0 },
       px: W / 2, py: P_MAX_Y - 60, pvx: 0, pvy: 0, walk: 0,
       aim: -Math.PI / 2, recoil: 0, hurt: 0, shake: 0,
       pointer: { x: W / 2, y: 400, down: false, mouse: !IS_TOUCH, inPlay: false },
@@ -204,6 +205,7 @@
 
   // ---------- boyutlandırma ----------
   let dpr = 1;
+  let paper = 'lined';                  // 'lined' çizgili defter, 'grid' kareli defter
   const bg = document.createElement('canvas');
   function resize() {
     dpr = Math.min(window.devicePixelRatio || 1, 2.5);
@@ -228,13 +230,27 @@
       b.fillStyle = `rgba(120,100,70,${Math.random() * 0.07})`;
       b.fillRect(Math.random() * W, Math.random() * H, rand(1, 3), rand(1, 3));
     }
-    b.strokeStyle = 'rgba(110,150,205,0.35)'; b.lineWidth = 1.2;
-    for (let y = 150; y < PLAY_BOTTOM; y += 34) { b.beginPath(); b.moveTo(0, y); b.lineTo(W, y); b.stroke(); }
-    b.strokeStyle = 'rgba(220,90,90,0.45)'; b.lineWidth = 1.6;
-    b.beginPath(); b.moveTo(58, 0); b.lineTo(58, PLAY_BOTTOM + 10); b.stroke();
-    for (const y of [240, 490, 740]) {
-      b.fillStyle = '#d8d1c3'; b.beginPath(); b.arc(26, y, 11, 0, Math.PI * 2); b.fill();
-      b.fillStyle = 'rgba(0,0,0,0.08)'; b.beginPath(); b.arc(27, y + 2, 9, 0, Math.PI * 2); b.fill();
+    if (paper === 'grid') {
+      // kareli defter: ince kareler, her 5 karede bir koyu çizgi
+      const G = 24;
+      for (let i = 0, x = 6; x < W; x += G, i++) {
+        b.strokeStyle = i % 5 ? 'rgba(110,150,205,0.22)' : 'rgba(110,150,205,0.4)'; b.lineWidth = i % 5 ? 1 : 1.3;
+        b.beginPath(); b.moveTo(x, 0); b.lineTo(x, PLAY_BOTTOM + 10); b.stroke();
+      }
+      for (let i = 0, y = 10; y < PLAY_BOTTOM + 10; y += G, i++) {
+        b.strokeStyle = i % 5 ? 'rgba(110,150,205,0.22)' : 'rgba(110,150,205,0.4)'; b.lineWidth = i % 5 ? 1 : 1.3;
+        b.beginPath(); b.moveTo(0, y); b.lineTo(W, y); b.stroke();
+      }
+    } else {
+      // çizgili defter: yatay çizgiler, kırmızı kenar çizgisi, delikler
+      b.strokeStyle = 'rgba(110,150,205,0.35)'; b.lineWidth = 1.2;
+      for (let y = 150; y < PLAY_BOTTOM; y += 34) { b.beginPath(); b.moveTo(0, y); b.lineTo(W, y); b.stroke(); }
+      b.strokeStyle = 'rgba(220,90,90,0.45)'; b.lineWidth = 1.6;
+      b.beginPath(); b.moveTo(58, 0); b.lineTo(58, PLAY_BOTTOM + 10); b.stroke();
+      for (const y of [240, 490, 740]) {
+        b.fillStyle = '#d8d1c3'; b.beginPath(); b.arc(26, y, 11, 0, Math.PI * 2); b.fill();
+        b.fillStyle = 'rgba(0,0,0,0.08)'; b.beginPath(); b.arc(27, y + 2, 9, 0, Math.PI * 2); b.fill();
+      }
     }
     b.fillStyle = '#e4dccb'; b.fillRect(0, PLAY_BOTTOM + 10, W, H - PLAY_BOTTOM - 10);
     b.strokeStyle = 'rgba(0,0,0,0.15)'; b.lineWidth = 2;
@@ -242,16 +258,35 @@
   }
 
   // ---------- dalgalar ----------
+  // Dalga listesi: { v, kind }. kind: n normal, coffee kahve lekeli, abs mutlak değer,
+  // pow üslü sayı, heal +1 auralı şifacı, zero sıfır tuzağı (dalga sayısına girmez).
   function genWave(w) {
-    const c = S.cfg;
+    const c = S.cfg, s = S.stage;
     const n = Math.min(4 + w + c.extra, 26);
     const maxV = Math.max(4, Math.round((4 + w * 2.5) * c.mult));
     const out = [];
+    const special = Math.min(0.45, 0.1 + s * 0.02 + w * 0.012);
+    let healers = 0;
     for (let i = 0; i < n; i++) {
       const sg = Math.random() < 0.6 ? 1 : -1;
       const big = Math.random() < 0.25;
       const lo = big ? Math.ceil(maxV / 2) : 1, hi = big ? maxV : Math.max(3, Math.ceil(maxV / 2));
-      out.push(sg * randi(lo, hi));
+      let kind = 'n';
+      if (i > 0 && Math.random() < special) {
+        const pool = [];
+        if (s >= 2 || w >= 6) pool.push('coffee');
+        if (s >= 3 || (s === 2 && w >= 6)) pool.push('abs');
+        if (s >= 4 || (s === 3 && w >= 6)) pool.push('pow');
+        if ((s >= 5 || (s === 4 && w >= 6)) && healers < 1 + Math.floor(s / 8)) pool.push('heal');
+        if (pool.length) kind = pool[randi(0, pool.length - 1)];
+        if (kind === 'heal') healers++;
+      }
+      out.push({ v: sg * randi(lo, hi), kind });
+    }
+    // sıfır tuzakları kalabalığın arasına doğar
+    if (s >= 2 || w >= 4) {
+      const z = randi(1, 1 + Math.min(3, Math.floor(s / 4)));
+      for (let k = 0; k < z; k++) out.splice(randi(Math.min(3, out.length), out.length), 0, { v: 0, kind: 'zero' });
     }
     return out;
   }
@@ -270,7 +305,7 @@
       Snd.boss();
     } else {
       S.spawnQueue = genWave(S.wave);
-      S.waveTotal = S.spawnQueue.length;
+      S.waveTotal = S.spawnQueue.filter(q => q.kind !== 'zero').length;
       S.spawnT = 1.5;
       const hint = S.stage === 1 ? WAVE_HINTS[S.wave] : '';
       S.banner = { text: `Dalga ${S.wave}/${WAVES}`, sub: hint || '', t: 0, life: 2.0 };
@@ -293,11 +328,65 @@
     const e = {
       id: S.nextId++, value: v, prev: v, v0: v, x, y, vx: 0, vy: 0, r: radiusFor(v),
       pop: 0, change: 0, flash: 0, write: 0, spd, wob: Math.random() * 6.28, dead: false,
-      markMul: 1, markT: 0,
     };
     S.enemies.push(Object.assign(e, extra));
+    e.r = enemyRadius(e);
     for (let i = 0; i < 6; i++) addPart('line', x + rand(-20, 20), y + rand(-20, 20), rand(-60, 60), rand(-60, 60), 0.35, INK, 2);
     return e;
+  }
+
+  const POW_FORMS = [[2, 2], [2, 3], [3, 2]];
+  const POW_FORMS_HARD = [[2, 4], [3, 3], [4, 2], [5, 2]];
+  const KIND_HINTS = {
+    zero: ['Sıfır tuzağı', '+ ya da − değerse uyanır!'],
+    abs: ['Mutlak değer', 'Önce | | zırhını kır'],
+    pow: ['Üslü sayı', 'Vurunca parçalara ayrılır'],
+    heal: ['Şifacı +1', '3 sn\'de bir yanındakileri büyütür'],
+    coffee: ['Kahve lekesi', 'Leke kuruyunca sayı görünür'],
+  };
+
+  // Kalabalığın ortası: rastgele bir düşmanın yanı
+  function crowdPos() {
+    const pool = S.enemies.filter(e => !e.dead && !e.boss && !e.trap);
+    if (!pool.length) return spawnPos(220);
+    const o = pool[randi(0, pool.length - 1)], a = rand(0, Math.PI * 2), d = o.r + rand(40, 70);
+    return { x: clamp(o.x + Math.cos(a) * d, 80, W - 50), y: clamp(o.y + Math.sin(a) * d, PLAY_TOP + 60, PLAY_BOTTOM - 60) };
+  }
+
+  function spawnSpec(q) {
+    let e;
+    const sg = Math.sign(q.v) || 1;
+    if (q.kind === 'zero') e = spawnEnemy(0, crowdPos(), { trap: true, minion: true });
+    else if (q.kind === 'abs') {
+      // içerideki sayı çoğunlukla negatiftir: |−6| kırılınca 6 olur
+      const inner = (Math.random() < 0.75 ? -1 : 1) * Math.abs(q.v);
+      const arm = 2 + Math.floor(S.stage / 6) * 2;
+      e = spawnEnemy(inner, null, { armor: arm, armorMax: arm });
+    } else if (q.kind === 'pow') {
+      const forms = S.stage >= 10 ? POW_FORMS.concat(POW_FORMS_HARD) : POW_FORMS;
+      const [b, x] = forms[randi(0, forms.length - 1)];
+      e = spawnEnemy(sg * b ** x, null, { base: b, exp: x });
+    } else if (q.kind === 'heal') e = spawnEnemy(q.v, null, { heal: true, healT: 3, healPulse: 0, spd: 0 });
+    else if (q.kind === 'coffee') e = spawnEnemy(q.v, null, { coffee: 10 });
+    else e = spawnEnemy(q.v);
+    if (e.heal) e.spd = Math.min(45, (16 + S.wave) * S.cfg.spd);
+    if (e.trap) e.spd = 14;
+    if (q.kind !== 'n' && !S.seen[q.kind]) {
+      S.seen[q.kind] = true;
+      const [t, sub] = KIND_HINTS[q.kind];
+      popup(e.x, e.y - 70, [{ text: t, color: '#0f7f8f', size: 28, font: NUM_FONT }, { text: sub, color: INK, size: 20, font: UI_FONT }], 2.2);
+    }
+    return e;
+  }
+
+  // Düşmanın ekranda yazan metni ve yarıçapı
+  const absText = e => fmt(e.value);
+  const powBase = e => (e.value < 0 ? MINUS : '') + e.base;
+  function enemyRadius(e) {
+    if (e.boss) return e.r;
+    if (e.base && e.exp) return 22 + powBase(e).length * 10 + 8;
+    if (e.armor > 0) return 30 + absText(e).length * 10;
+    return radiusFor(e.value);
   }
 
   function bossHp(s, w, B) {
@@ -370,34 +459,110 @@
       popup(e.x, e.y - 60, [{ text: `${BOSS_TYPES[e.boss].name} silindi!`, color: '#e0407a', size: 32, font: NUM_FONT }], 1.8);
     }
     // XP mürekkep damlaları: önce saçılır, sonra oyuncuya uçar
-    const total = xpFor(e.v0) * (e.boss ? 3 : 1) * (e.minion ? 0.5 : 1), n = Math.min(e.boss ? 14 : 6, Math.ceil(total / 3));
+    const total = e.xpVal != null ? e.xpVal : xpFor(e.v0) * (e.boss ? 3 : 1) * (e.minion ? 0.5 : 1), n = Math.min(e.boss ? 14 : 6, Math.ceil(total / 3));
     for (let i = 0; i < n; i++) {
       const a = Math.random() * Math.PI * 2, sp = rand(80, 200);
       S.orbs.push({ x: e.x, y: e.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, val: total / n, age: 0 });
     }
+    if (!e.boss && !e.shard) {
+      comboKill(e);
+      if (Math.random() < ITEM_DROP_RATE) dropItem(e.x, e.y);   // standart eşya düşürme
+    }
     Snd.kill();
+  }
+
+  // Tek/çift kombosu: aynı türden 10 öldürme = kesin eşya. Yazı 3. öldürmede çıkar.
+  const COMBO_GOAL = 10, COMBO_SHOW = 3;
+  function comboKill(e) {
+    const par = Math.abs(e.v0) % 2, C = S.combo;
+    if (C.par === par) C.n++;
+    else {
+      if (C.n >= COMBO_SHOW) addLabel(S.px, S.py - 110, 'Kombo bozuldu', '#8a8580', 20);
+      C.par = par; C.n = 1;
+    }
+    if (C.n === COMBO_SHOW) Snd.select();
+    if (C.n >= COMBO_GOAL) {
+      dropItem(e.x, e.y, true);
+      popup(e.x, e.y - 50, [{ text: `${COMBO_GOAL} ${par ? 'tek' : 'çift'}!`, color: '#d69a00', size: 34, font: NUM_FONT }, { text: 'Ödül düştü', color: INK, size: 20, font: UI_FONT }], 1.4);
+      C.par = -1; C.n = 0;
+    }
+  }
+
+  // Üslü sayı açılır: değeri kadar küçük sayıya bölünür (en fazla 9 parça, toplam korunur)
+  function openPower(e, dir) {
+    const total = Math.abs(e.value), sg = Math.sign(e.value) || 1;
+    const n = Math.min(total, 9), xp = xpFor(e.value) / n;
+    e.dead = true;
+    S.resolved++;
+    S.rp += total; S.rpPop = 1;
+    burst(e.x, e.y, 16, '#0f7f8f');
+    addPart('ghost', e.x, e.y, 0, 0, 0.5, '#0f7f8f', 40, { text: `${powBase(e)}^${e.exp}` });
+    addLabel(e.x, e.y - 30, `= ${fmt(e.value)}`, '#0f7f8f', 26);
+    for (let k = 0; k < n; k++) {
+      const part = Math.floor(total / n) + (k < total % n ? 1 : 0);
+      const a = dir + Math.PI + (k / n) * Math.PI * 2;
+      const at = { x: clamp(e.x + Math.cos(a) * 30, 60, W - 40), y: clamp(e.y + Math.sin(a) * 30, PLAY_TOP + 40, PLAY_BOTTOM - 40) };
+      const sh = spawnEnemy(sg * part, at, { minion: true, shard: true, xpVal: xp, spd: Math.min(80, e.spd * 1.15) });
+      sh.vx = Math.cos(a) * 260; sh.vy = Math.sin(a) * 260; sh.write = 0.6;
+    }
+    S.shake = Math.max(S.shake, 7);
+    Snd.kill();
+  }
+
+  // Değeri sıfıra doğru `amt` kadar götürür (pergel çemberi). Zırhı ve üssü önce bozar.
+  function nudge(e, amt) {
+    if (e.dead || e.trap || e.write < 1) return;
+    if (e.armor > 0) { breakArmor(e); return; }
+    if (e.base && e.exp) { openPower(e, 0); return; }
+    const v = e.value, nv = Math.abs(v) <= amt ? 0 : v - Math.sign(v) * amt;
+    e.prev = v; e.value = nv; e.change = 1; e.pop = e.boss ? 0.4 : 0.8; e.flash = 1;
+    e.r = enemyRadius(e);
+    addLabel(e.x, e.y - 30, `${fmt(v)}→${fmt(nv)}`, '#0f7f8f', 20);
+    if (nv === 0) killEnemy(e);
+  }
+
+  function breakArmor(e) {
+    e.armor--; e.pop = 0.7; e.flash = 0.6;
+    burst(e.x + (e.armor % 2 ? -1 : 1) * e.r * 0.7, e.y, 6, '#5b6b8a');
+    if (e.armor <= 0) {
+      const v = e.value;
+      e.prev = v; e.value = Math.abs(v); e.change = 1; e.pop = 1;
+      e.r = enemyRadius(e);
+      addLabel(e.x, e.y - 34, `|${fmt(v)}| = ${e.value}`, '#5b6b8a', 26);
+      Snd.mark();
+    } else {
+      addLabel(e.x, e.y - 30, 'zırh', '#5b6b8a', 20);
+      Snd.empty();
+    }
   }
 
   function hitEnemy(e, s) {
     const i = s.op, p = s.pow;
     const dir = Math.atan2(s.vy, s.vx);
     e.vx += Math.cos(dir) * 90; e.vy += Math.sin(dir) * 90;
-    if (i === 3) {
-      // × : sayıyı değiştirmez, işaretler
-      e.markMul = Math.max(p, e.markT > 0 ? e.markMul : 1); e.markT = MARK_TIME; e.pop = 0.6;
-      splat(s.x, s.y, dir, 6, MARK);
-      addLabel(s.x, s.y - 14, '×' + p, MARK, 24);
-      Snd.mark();
+    splat(s.x, s.y, dir, 7);
+    // sıfır tuzağı: + ya da − değerse uyanır ve düşmana dönüşür
+    if (e.trap) {
+      if (i === 2) { addLabel(s.x, s.y - 14, '0 ÷ ' + p + ' = 0', '#8a8580', 20); Snd.empty(); return; }
+      const nv = i === 0 ? -p : p;
+      e.trap = false; e.prev = 0; e.value = nv; e.v0 = nv; e.change = 1; e.pop = 1; e.flash = 1;
+      e.spd = Math.min(75, (26 + S.wave * 2) * S.cfg.spd);
+      e.r = enemyRadius(e);
+      addLabel(s.x, s.y - 14, (i === 0 ? MINUS : '+') + p, RED, 22);
+      addLabel(e.x, e.y - 40, 'Uyandı!', RED, 24);
+      burst(e.x, e.y, 10, RED);
+      Snd.hurt();
       return;
     }
+    if (e.armor > 0) { addLabel(s.x, s.y - 14, wLabel(i, S.wlv[i]), '#8a8580', 20); breakArmor(e); return; }
+    if (e.base && e.exp) { openPower(e, dir); return; }
     const v = e.value;
     let nv, label;
     if (i < 2) {
-      const step = p * (e.markT > 0 ? e.markMul : 1);
-      nv = i === 0 ? v - step : v + step;
+      nv = i === 0 ? v - p : v + p;
       // doğru yöne vuruş sıfırı geçmez: sıfırda durur
       if ((v > 0 && nv < 0) || (v < 0 && nv > 0)) nv = 0;
-      label = (i === 0 ? MINUS : '+') + step;
+      label = (i === 0 ? MINUS : '+') + p;
     } else {
       nv = Math.trunc(v / p);
       label = '÷' + p;
@@ -409,8 +574,7 @@
     }
     nv = clamp(nv, -99999, 99999);
     if (e.boss) { e.lastHit = e.t; e.prev = v; e.value = nv; e.change = 1; e.pop = 0.6; e.flash = 1; }
-    else { e.prev = v; e.value = nv; e.change = 1; e.pop = 1; e.flash = 1; e.r = radiusFor(nv); }
-    splat(s.x, s.y, dir, 7);
+    else { e.prev = v; e.value = nv; e.change = 1; e.pop = 1; e.flash = 1; e.r = enemyRadius(e); }
     addLabel(s.x, s.y - 14, label, RED, 22);
     Snd.hit(nv);
     if (nv === 0) killEnemy(e);
@@ -422,7 +586,7 @@
   }
 
   function hurtPlayer(e) {
-    if (S.iframes > 0) return;
+    if (S.iframes > 0 || e.trap) return;
     const cx = S.px, cy = S.py - 20;
     const a = Math.atan2(e.y - cy, e.x - cx);
     if (e.boss) { if (e.dashState === 2) { e.dashState = 0; e.dashT = BOSS_TYPES[e.boss].dash; } }
@@ -434,6 +598,7 @@
   function damagePlayer(dmg) {
     if (S.iframes > 0 || S.mode !== 'play') return;
     const cx = S.px, cy = S.py - 20;
+    if (S.buffs.shield > 0) { S.iframes = 0.5; addLabel(cx, cy - 60, 'kalkan!', '#2f6fd1', 22); Snd.mark(); return; }
     S.hp = Math.max(0, S.hp - dmg);
     S.iframes = HIT_IFRAMES;
     S.hurt = 1; S.shake = 14;
@@ -490,13 +655,13 @@
       addPart('dot', hx, hy, Math.cos(a) * sp, Math.sin(a) * sp, 0.2, RED, rand(1.5, 2.5));
     }
     Snd.shoot();
-    S.fireCD = FIRE_CD;
+    S.fireCD = FIRE_CD * (S.buffs.rapid > 0 ? 0.55 : 1);
   }
 
   function findTarget(x, y) {
     let target = null, best = Infinity;
     for (const e of S.enemies) {
-      if (e.dead || e.write < 1 || e.ghostA < 0.5) continue;
+      if (e.dead || e.trap || e.write < 1 || e.ghostA < 0.5) continue;
       const d = Math.hypot(e.x - x, e.y - y) - e.r;
       if (d < 55 && d < best) { best = d; target = e; }
     }
@@ -505,7 +670,7 @@
   function nearestEnemy(from) {
     let target = null, best = Infinity;
     for (const e of S.enemies) {
-      if (e.dead || e.write < 1 || e.ghostA < 0.5) continue;
+      if (e.dead || e.trap || e.write < 1 || e.ghostA < 0.5) continue;
       const d = Math.hypot(e.x - from.x, e.y - from.y);
       if (d < best) { best = d; target = e; }
     }
@@ -514,7 +679,7 @@
   function coneTarget(from, dir, cone) {
     let target = null, best = Infinity;
     for (const e of S.enemies) {
-      if (e.dead || e.write < 1 || e.ghostA < 0.5) continue;
+      if (e.dead || e.trap || e.write < 1 || e.ghostA < 0.5) continue;
       const a = Math.atan2(e.y - from.y, e.x - from.x);
       const da = Math.abs(((a - dir + Math.PI * 3) % (Math.PI * 2)) - Math.PI);
       if (da > cone) continue;
@@ -665,6 +830,202 @@
     S.iframes = Math.max(S.iframes, 1.0);
   }
 
+  // ---------- şifacı: +1 aurası ----------
+  const HEAL_R = 170;
+  function healAura(h) {
+    h.healPulse = 1;
+    for (const o of S.enemies) {
+      if (o === h || o.dead || o.trap || o.write < 1 || o.value === 0 || (o.base && o.exp)) continue;
+      if (Math.hypot(o.x - h.x, o.y - h.y) > HEAL_R) continue;
+      o.prev = o.value; o.value += Math.sign(o.value); o.pop = Math.max(o.pop, 0.5);
+      if (!o.boss) o.r = enemyRadius(o);
+      addLabel(o.x, o.y - o.r * 0.6, '+1', '#2f9a6a', 20);
+    }
+    Snd.tone(520, 0.1, 'sine', 0.03, 120);
+  }
+
+  // ---------- harita: cetveller ve pergel ----------
+  const FOOT_DY = 44;                    // çöp adamın ayak noktası (gövdeye göre)
+  const RULER_L = 210, RULER_HW = 12, RULER_UP = 0.62;
+  const COMPASS_ZONE = 58, COMPASS_NEED = 10, COMPASS_R = 150, COMPASS_ON = 8, COMPASS_COOL = 15;
+
+  function freeSpot(minPlayer, avoid, margin = 70) {
+    let x = 0, y = 0;
+    for (let k = 0; k < 40; k++) {
+      x = rand(90 + margin * 0.3, W - 60 - margin * 0.3); y = rand(PLAY_TOP + 160, PLAY_BOTTOM - 70);
+      if (Math.hypot(x - S.px, y - S.py - FOOT_DY) > minPlayer && avoid.every(o => Math.hypot(o.x - x, o.y - y) > o.gap)) break;
+    }
+    return { x, y };
+  }
+
+  function setupMap() {
+    S.rulers = []; S.compass = null;
+    const avoid = [];
+    if (S.stage >= 2) {
+      const c = freeSpot(170, avoid);
+      S.compass = { x: c.x, y: c.y, prog: 0, state: 'idle', t: 0, ang: 0, tick: 0 };
+      avoid.push({ x: c.x, y: c.y, gap: 190 });
+    }
+    const n = S.stage === 1 ? 2 : 3;
+    for (let k = 0; k < n; k++) {
+      const p = freeSpot(200, avoid);
+      S.rulers.push({ x: p.x, y: p.y, state: 'up', t: 0, dir: 0, f: 0 });
+      avoid.push({ x: p.x, y: p.y, gap: 170 });
+    }
+  }
+
+  const rulerTip = rl => ({ x: rl.x + Math.cos(rl.dir) * RULER_L, y: rl.y + Math.sin(rl.dir) * RULER_L });
+  function segDist(px, py, ax, ay, bx, by) {
+    const vx = bx - ax, vy = by - ay, l2 = vx * vx + vy * vy || 1;
+    const t = clamp(((px - ax) * vx + (py - ay) * vy) / l2, 0, 1);
+    const qx = ax + vx * t, qy = ay + vy * t;
+    return { d: Math.hypot(px - qx, py - qy), qx, qy };
+  }
+  // Daireyi (o.x, o.y, r) yatık cetvelin dışına iter
+  function collideRuler(rl, o, r) {
+    const tip = rulerTip(rl);
+    const c = segDist(o.x, o.y, rl.x, rl.y, tip.x, tip.y), min = r + RULER_HW;
+    if (c.d >= min) return false;
+    let nx, ny;
+    if (c.d > 0.01) { nx = (o.x - c.qx) / c.d; ny = (o.y - c.qy) / c.d; }
+    else { nx = -Math.sin(rl.dir); ny = Math.cos(rl.dir); }
+    o.x = c.qx + nx * min; o.y = c.qy + ny * min;
+    if (o.vx !== undefined) { const dot = o.vx * nx + o.vy * ny; if (dot < 0) { o.vx -= nx * dot; o.vy -= ny * dot; } }
+    return { nx, ny };
+  }
+
+  function updateRulers(dt) {
+    const fx = S.px, fy = S.py + FOOT_DY;
+    for (const rl of S.rulers) {
+      rl.t += dt;
+      if (rl.state === 'up') {
+        // önünden (aşağısından) geçince sana doğru devrilir
+        const dx = fx - rl.x, dy = fy - rl.y;
+        if (dy > -6 && Math.hypot(dx, dy) < RULER_L * 0.92) {
+          rl.state = 'wobble'; rl.t = 0; rl.dir = Math.atan2(dy, dx);
+          Snd.tone(200, 0.15, 'square', 0.03, -40);
+        }
+      } else if (rl.state === 'wobble') {
+        if (rl.t > 0.35) { rl.state = 'fall'; rl.t = 0; }
+      } else if (rl.state === 'fall') {
+        rl.f = Math.min(1, rl.t / 0.38);
+        if (rl.f >= 1) landRuler(rl);
+      }
+    }
+  }
+
+  function landRuler(rl) {
+    rl.state = 'down'; rl.f = 1;
+    const tip = rulerTip(rl);
+    S.shake = Math.max(S.shake, 10);
+    Snd.noise(0.25, 0.09, 500); Snd.tone(110, 0.2, 'sawtooth', 0.06, -40);
+    for (let k = 0; k <= 8; k++) {
+      const x = lerp(rl.x, tip.x, k / 8), y = lerp(rl.y, tip.y, k / 8);
+      addPart('dot', x, y, rand(-80, 80), rand(-80, 80), 0.4, '#b08a3e', rand(2, 3.5));
+    }
+    // altında kalan oyuncu dışarı itilir ve hasar alır
+    const foot = { x: S.px, y: S.py + FOOT_DY };
+    const c = segDist(foot.x, foot.y, rl.x, rl.y, tip.x, tip.y);
+    if (c.d < RULER_HW + 22) {
+      const hit = collideRuler(rl, foot, 30);
+      S.px = clamp(foot.x, P_MIN_X, P_MAX_X); S.py = clamp(foot.y - FOOT_DY, P_MIN_Y, P_MAX_Y);
+      if (hit) { S.pvx = hit.nx * 420; S.pvy = hit.ny * 420; }
+      S.iframes = 0;
+      damagePlayer(Math.round(16 * S.cfg.dmg));
+      if (S.mode !== 'play') return;
+    }
+    for (const e of S.enemies) if (!e.dead) collideRuler(rl, e, e.boss ? e.r * 0.7 : e.r * 0.8);
+  }
+
+  function updateCompass(dt) {
+    const C = S.compass;
+    if (!C) return;
+    C.t += dt;
+    const fx = S.px, fy = S.py + FOOT_DY, inZone = Math.hypot(fx - C.x, fy - C.y) < COMPASS_ZONE;
+    if (C.state === 'idle') {
+      C.prog = inZone ? C.prog + dt : Math.max(0, C.prog - dt * 2);
+      if (C.prog >= COMPASS_NEED) {
+        C.state = 'draw'; C.t = 0; C.prog = 0; C.tick = 0;
+        Snd.levelUp();
+        popup(C.x, C.y - 90, [{ text: 'Pergel çiziyor!', color: '#0f7f8f', size: 30, font: NUM_FONT }], 1.3);
+      }
+    } else if (C.state === 'draw') {
+      C.ang = (C.t / 0.9) * Math.PI * 2;
+      if (C.t >= 0.9) { C.state = 'on'; C.t = 0; C.ang = 0; }
+    } else if (C.state === 'on') {
+      C.ang += dt * 5;
+      C.tick += dt;
+      // çemberin içindekiler her saniye 5 değer sıfıra yaklaşır
+      while (C.tick >= 1) {
+        C.tick -= 1;
+        for (const e of S.enemies) if (Math.hypot(e.x - C.x, e.y - C.y) < COMPASS_R + (e.boss ? e.r * 0.4 : 0)) nudge(e, 5);
+        Snd.tone(660, 0.08, 'sine', 0.04, -200);
+      }
+      if (C.t >= COMPASS_ON) { C.state = 'cool'; C.t = 0; }
+    } else if (C.state === 'cool' && C.t >= COMPASS_COOL) {
+      // pergel başka bir bölgeye taşınır
+      const p = freeSpot(170, S.rulers.map(r => ({ x: r.x, y: r.y, gap: 150 })));
+      burst(C.x, C.y, 8, '#0f7f8f');
+      Object.assign(C, { x: p.x, y: p.y, state: 'idle', t: 0, prog: 0 });
+    }
+  }
+
+  // ---------- eşyalar ve kalemler ----------
+  const ITEM_DROP_RATE = 0.03;
+  const RARITY = [
+    { name: 'Sıradan', color: '#7d776f', w: 60 },
+    { name: 'Nadir', color: '#2f6fd1', w: 27 },
+    { name: 'Epik', color: '#8e44d8', w: 10 },
+    { name: 'Efsanevi', color: '#d69a00', w: 3 },
+  ];
+  function upgradeWeapon(i) { if (S.wlv[i] < MAX_WLV) { S.wlv[i]++; return true; } return false; }
+  const ITEMS = [
+    { r: 0, name: 'Yara bandı', icon: '+', desc: '+20 can', use() { S.hp = Math.min(S.maxHp, S.hp + 20); } },
+    { r: 0, name: 'Mürekkep şişesi', icon: 'xp', desc: 'XP kazanırsın', use() { gainXP(Math.ceil(xpNeed(S.level) * 0.4)); } },
+    { r: 1, name: 'Yedek uçlar', icon: '÷', desc: '÷ mermisi doldu', use() { S.ammo[2] = S.ammoCap; S.ammoT[2] = 0; } },
+    { r: 1, name: 'Kalemtıraş', icon: '»', desc: '15 sn hızlı atış', use() { S.buffs.rapid = 15; } },
+    { r: 2, name: 'Renkli kalem', icon: '✎', desc: 'Bir silah +1 seviye', pen: true, use() {
+      const open = [0, 1, 2].filter(i => S.wlv[i] < MAX_WLV);
+      if (!open.length) { S.hp = S.maxHp; return 'Can doldu'; }
+      const i = open[randi(0, open.length - 1)]; upgradeWeapon(i); return `${wLabel(i, S.wlv[i])} oldu`;
+    } },
+    { r: 2, name: 'Silgi kalkanı', icon: '▢', desc: '8 sn hasar yok', use() { S.buffs.shield = 8; } },
+    { r: 3, name: 'Altın dolma kalem', icon: '✒', desc: 'Tüm silahlar +1, can dolar', pen: true, use() { [0, 1, 2].forEach(upgradeWeapon); S.hp = S.maxHp; } },
+  ];
+  function rollRarity() {
+    let x = Math.random() * RARITY.reduce((a, r) => a + r.w, 0);
+    for (let i = 0; i < RARITY.length; i++) { x -= RARITY[i].w; if (x < 0) return i; }
+    return 0;
+  }
+  function dropItem(x, y, sure) {
+    const r = rollRarity(), pool = ITEMS.filter(it => it.r === r);
+    const def = pool[randi(0, pool.length - 1)];
+    S.items.push({ x: clamp(x, 70, W - 50), y: clamp(y, PLAY_TOP + 50, PLAY_BOTTOM - 40), def, t: 0, life: sure ? 18 : 12 });
+    addPart('ring', x, y, 0, 0, 0.5, RARITY[r].color, 10);
+    Snd.ammo();
+  }
+  function updateItems(dt) {
+    const cx = S.px, cy = S.py;
+    for (const it of S.items) {
+      it.t += dt;
+      const d = Math.hypot(it.x - cx, it.y - cy);
+      if (d < 110) { const k = Math.min(1, dt * 4); it.x += (cx - it.x) * k * 0.6; it.y += (cy - it.y) * k * 0.6; }
+      if (d < 42) {
+        it.dead = true;
+        const res = it.def.use(), R = RARITY[it.def.r];
+        popup(S.px, S.py - 120, [
+          { text: `${R.name}${it.def.pen ? ' kalem' : ''}`, color: R.color, size: 20, font: UI_FONT },
+          { text: it.def.name, color: R.color, size: 30, font: NUM_FONT },
+          { text: typeof res === 'string' ? res : it.def.desc, color: INK, size: 20, font: UI_FONT },
+        ], 1.6);
+        burst(it.x, it.y, 12, R.color);
+        Snd.levelUp();
+        if (S.mode !== 'play') break;
+      } else if (it.t > it.life) it.dead = true;
+    }
+    S.items = S.items.filter(it => !it.dead);
+  }
+
   // ---------- bölüm akışı ----------
   function startStage(s) {
     Snd.init();
@@ -672,6 +1033,9 @@
     S = newState();
     S.pointer = pointer; S.pointer.down = false;
     S.stage = s; S.cfg = stageCfg(s);
+    paper = s % 2 === 0 ? 'grid' : 'lined';
+    renderBackground();
+    setupMap();
     setMode('play');
     showOverlay(null);
     startWave();
@@ -697,14 +1061,14 @@
 
   // ---------- seviye atlama ----------
   function openLevelUp() {
-    const open = [0, 1, 2, 3].filter(i => S.wlv[i] < MAX_WLV);
+    const open = [0, 1, 2].filter(i => S.wlv[i] < MAX_WLV);
     if (!open.length) { S.pendingLevels = 0; return; }
     setMode('levelup');
     S.pointer.down = false; S.keyFire = false; S.stick = null; S.aimTouch = null;
     $('luTitle').textContent = `Seviye ${S.level - S.pendingLevels + 1}!`;
     const box = $('luChoices');
     box.innerHTML = '';
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < NW; i++) {
       const lv = S.wlv[i], maxed = lv >= MAX_WLV;
       const b = document.createElement('button');
       b.className = 'choice';
@@ -796,14 +1160,16 @@
       if (a !== null) S.aim = lerpAngle(S.aim, a, Math.min(1, dt * 10));
     }
 
-    // ÷ ve × mermileri kendiliğinden dolar
-    for (let i = 2; i < 4; i++) {
+    // ÷ mermileri kendiliğinden dolar
+    for (let i = 2; i < NW; i++) {
       if (S.ammo[i] < S.ammoCap) {
         S.ammoT[i] += dt;
         if (S.ammoT[i] >= AMMO_REGEN) { S.ammoT[i] = 0; S.ammo[i]++; S.cardShake[i] = 0.6; Snd.ammo(); }
       } else S.ammoT[i] = 0;
     }
     S.iframes = Math.max(0, S.iframes - dt);
+    S.buffs.rapid = Math.max(0, S.buffs.rapid - dt);
+    S.buffs.shield = Math.max(0, S.buffs.shield - dt);
 
     // dalga akışı
     if (S.waveActive) {
@@ -813,10 +1179,13 @@
       } else if (S.spawnQueue.length) {
         S.spawnT -= dt;
         if (S.spawnT <= 0) {
-          spawnEnemy(S.spawnQueue.shift());
+          spawnSpec(S.spawnQueue.shift());
           S.spawnT = S.cfg.gap * Math.max(0.6, 1.15 - S.wave * 0.05);
         }
-      } else if (S.enemies.length === 0) {
+      } else if (S.enemies.every(e => e.trap)) {
+        // uyanmamış sıfır tuzakları dalga bitince uçup gider
+        for (const e of S.enemies) { e.dead = true; burst(e.x, e.y, 8, '#8a8580'); }
+        S.enemies.length = 0;
         S.waveActive = false;
         S.bullets.length = 0;
         if (S.wave >= WAVES) { stageClear(); return; }
@@ -835,8 +1204,12 @@
     updateShots(dt);
     updateEnemies(dt);
     if (S.mode !== 'play') return;
+    updateRulers(dt);
+    if (S.mode !== 'play') return;
+    updateCompass(dt);
     updateBullets(dt);
     updateOrbs(dt);
+    updateItems(dt);
   }
 
   function updatePlayer(dt) {
@@ -857,6 +1230,11 @@
     S.pvy += (my * MOVE_SPEED - S.pvy) * r;
     S.px = clamp(S.px + S.pvx * dt, P_MIN_X, P_MAX_X);
     S.py = clamp(S.py + S.pvy * dt, P_MIN_Y, P_MAX_Y);
+    // devrilmiş cetveller duvardır: ayak noktası içlerinden geçemez
+    const foot = { x: S.px, y: S.py + FOOT_DY };
+    for (const rl of S.rulers) if (rl.state === 'down') collideRuler(rl, foot, 16);
+    S.px = clamp(foot.x, P_MIN_X, P_MAX_X);
+    S.py = clamp(foot.y - FOOT_DY, P_MIN_Y, P_MAX_Y);
     S.walk += Math.hypot(S.pvx, S.pvy) * dt * 0.06;
   }
 
@@ -889,8 +1267,13 @@
       e.pop = Math.max(0, e.pop - dt * 4.5);
       e.change = Math.max(0, e.change - dt * 3.2);
       e.flash = Math.max(0, e.flash - dt * 5);
-      if (e.markT > 0) { e.markT -= dt; if (e.markT <= 0) { e.markT = 0; e.markMul = 1; } }
       if (e.write < 1) { e.write = Math.min(1, e.write + dt * 2.2); continue; }
+      if (e.coffee > 0) e.coffee = Math.max(0, e.coffee - dt);
+      if (e.heal) {
+        e.healPulse = Math.max(0, e.healPulse - dt * 1.5);
+        e.healT -= dt;
+        if (e.healT <= 0) { e.healT = 3; healAura(e); }
+      }
       if (e.boss) {
         updateBoss(e, dt);
         if (S.mode !== 'play') return;
@@ -900,7 +1283,9 @@
       const dx = cx - e.x, dy = cy - e.y, d = Math.hypot(dx, dy) || 1;
       e.wob += dt * 2.2;
       const nx = -dy / d, ny = dx / d, w = Math.sin(e.wob) * 0.45;
-      const tx = (dx / d + nx * w) * e.spd, ty = (dy / d + ny * w) * e.spd;
+      let tx = (dx / d + nx * w) * e.spd, ty = (dy / d + ny * w) * e.spd;
+      if (e.trap) { tx = Math.cos(e.wob * 0.4 + e.id) * e.spd; ty = Math.sin(e.wob * 0.3 + e.id * 2) * e.spd; }
+      else if (e.heal && d < 230) { tx = (-dx / d * 0.6 + nx * w) * e.spd; ty = (-dy / d * 0.6 + ny * w) * e.spd; }   // şifacı arkada kalır
       const k = Math.min(1, dt * 2);
       e.vx += (tx - e.vx) * k; e.vy += (ty - e.vy) * k;
     }
@@ -926,6 +1311,7 @@
       if (e.dead || e.write < 1) continue;
       e.x += e.vx * dt; e.y += e.vy * dt;
       const mx = e.boss ? e.r * 0.8 : 0;
+      for (const rl of S.rulers) if (rl.state === 'down') collideRuler(rl, e, e.boss ? e.r * 0.7 : e.r * 0.8);
       e.x = clamp(e.x, 40 + mx, W - 20 - mx);
       e.y = clamp(e.y, PLAY_TOP + 20 + mx * 0.6, PLAY_BOTTOM - 35 - mx * 0.6);
       if (Math.hypot(cx - e.x, cy - e.y) < (e.boss ? e.r * 0.85 : e.r) + 26) hurtPlayer(e);
@@ -987,6 +1373,17 @@
   }
 
   function drawEnemies(boil) {
+    // şifacı auraları: yeşil kesik çember, her +1'de nabız atar
+    for (const e of S.enemies) {
+      if (!e.heal || e.write < 1) continue;
+      ctx.save();
+      ctx.strokeStyle = `rgba(47,154,106,${0.3 + e.healPulse * 0.5})`; ctx.lineWidth = 2 + e.healPulse * 3;
+      ctx.setLineDash([8, 8]); ctx.lineDashOffset = clock * 20;
+      ctx.beginPath(); ctx.arc(e.x, e.y, HEAL_R, 0, Math.PI * 2); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = `rgba(47,154,106,${0.04 + e.healPulse * 0.1})`; ctx.fill();
+      ctx.restore();
+    }
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     for (const e of S.enemies) {
       if (e.boss) { drawBoss(e, boil); continue; }
@@ -995,30 +1392,199 @@
       ctx.fillStyle = 'rgba(0,0,0,0.07)';
       ctx.beginPath(); ctx.ellipse(4, e.r * 0.75, e.r * 0.8, 7, 0, 0, Math.PI * 2); ctx.fill();
       ctx.rotate(noise(e.id * 13 + boil) * 0.04 + Math.sin(e.wob) * 0.07);
-      let sc = 1 + e.pop * 0.45;
+      let sc = (1 + e.pop * 0.45) * (e.shard ? 0.75 : 1);
       if (e.write < 1) sc *= Math.max(0.01, easeOutBack(e.write));
       ctx.scale(sc, sc);
-      if (e.change > 0) {
+      const stained = e.coffee > 0;
+      if (e.change > 0 && !stained) {
         const k = 1 - e.change;
         drawText(fmt(e.prev), k * 18, -k * 34, 46 * (1 - k * 0.4), '#8a8580', NUM_FONT, e.id + boil, e.change * 0.55);
       }
       const color = e.flash > 0.45 ? RED : (e.value < 0 ? NEG_INK : INK);
-      drawText(fmt(e.value), 0, 0, 46, color, NUM_FONT, e.id * 7 + boil);
-      if (e.markT > 0) {
-        // × işareti: turuncu rozet + kalan süre halkası
-        const bx = e.r * 0.85, by = -26;
-        const blink = e.markT < 1.5 && Math.floor(clock * 8) % 2 === 0;
-        if (!blink) {
-          ctx.fillStyle = PAPER; ctx.strokeStyle = MARK; ctx.lineWidth = 2.5;
-          ctx.beginPath(); ctx.arc(bx, by, 15, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-          ctx.lineWidth = 3;
-          ctx.beginPath(); ctx.arc(bx, by, 19, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * (e.markT / MARK_TIME)); ctx.stroke();
-          ctx.font = `16px ${NUM_FONT}`; ctx.fillStyle = MARK;
-          ctx.fillText('×' + e.markMul, bx, by + 1);
+      if (e.trap) {
+        // uyuyan sıfır: soluk, zararsız görünür
+        drawText('0', 0, 0, 46, '#9a948c', NUM_FONT, e.id * 7 + boil);
+        ctx.font = `16px ${UI_FONT}`; ctx.fillStyle = 'rgba(31,29,27,0.45)';
+        const zz = (clock * 0.8 + e.id * 0.3) % 1;
+        ctx.fillText('z', 18 + zz * 8, -22 - zz * 14);
+        ctx.fillText('z', 26 + zz * 6, -34 - zz * 10);
+      } else if (e.base && e.exp) {
+        // üslü sayı: taban + küçük üs
+        const bt = powBase(e);
+        ctx.font = `46px ${NUM_FONT}`;
+        const bw = ctx.measureText(bt).width;
+        drawText(bt, -8, 4, 46, color, NUM_FONT, e.id * 7 + boil);
+        drawText(String(e.exp), bw / 2 + 2, -18, 26, '#0f7f8f', NUM_FONT, e.id * 3 + boil);
+      } else {
+        drawText(fmt(e.value), 0, 0, 46, color, NUM_FONT, e.id * 7 + boil);
+        if (e.armor > 0) {
+          // mutlak değer zırhı: iki kalın dikey çizgi, kırıldıkça incelir
+          ctx.font = `46px ${NUM_FONT}`;
+          const tw = ctx.measureText(fmt(e.value)).width;
+          const per = e.armorMax / 2;
+          for (const side of [-1, 1]) {
+            const left = side < 0 ? Math.ceil(e.armor / 2) : Math.floor(e.armor / 2);
+            if (left <= 0) continue;
+            const bx = side * (tw / 2 + 12);
+            ctx.strokeStyle = '#5b6b8a'; ctx.lineCap = 'round';
+            ctx.lineWidth = 3 + 4 * (left / per);
+            ctx.beginPath(); ctx.moveTo(bx + noise(e.id + side) * 1.5, -26); ctx.lineTo(bx + noise(e.id + side + 2) * 1.5, 26); ctx.stroke();
+          }
+        }
+        if (e.heal) {
+          ctx.fillStyle = '#2f9a6a'; ctx.strokeStyle = PAPER; ctx.lineWidth = 3;
+          const hx = e.r * 0.8, hy = -24;
+          ctx.beginPath(); ctx.arc(hx, hy, 13, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+          ctx.font = `17px ${NUM_FONT}`; ctx.fillStyle = '#fff'; ctx.fillText('+1', hx, hy + 1);
+          // sıradaki +1'e kalan süre
+          ctx.strokeStyle = '#2f9a6a'; ctx.lineWidth = 2.5;
+          ctx.beginPath(); ctx.arc(hx, hy, 17, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * (1 - e.healT / 3)); ctx.stroke();
         }
       }
+      if (stained) drawCoffee(e);
       ctx.restore();
     }
+  }
+
+  // Kahve lekesi: 10 saniyede yavaş yavaş kurur, kurudukça sayı görünür
+  function drawCoffee(e) {
+    const k = e.coffee / 10, a = Math.min(1, k * 1.5);
+    const R = e.r + 8;
+    ctx.save();
+    ctx.globalAlpha = a;
+    ctx.fillStyle = '#7a4a24';
+    ctx.beginPath();
+    for (let i = 0; i <= 18; i++) {
+      const ang = (i / 18) * Math.PI * 2, rr = R * (0.88 + noise(e.id * 31 + i) * 0.12);
+      i ? ctx.lineTo(Math.cos(ang) * rr, Math.sin(ang) * rr * 0.85) : ctx.moveTo(Math.cos(ang) * rr, Math.sin(ang) * rr * 0.85);
+    }
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = '#4e2c12'; ctx.lineWidth = 3; ctx.stroke();
+    ctx.fillStyle = '#9a6435';
+    ctx.beginPath(); ctx.arc(R * 0.7, -R * 0.55, 6, 0, Math.PI * 2); ctx.arc(-R * 0.8, R * 0.5, 4, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = a * 0.8;
+    ctx.font = `30px ${NUM_FONT}`; ctx.fillStyle = '#f3e3cf';
+    ctx.fillText('?', 0, 2);
+    ctx.restore();
+  }
+
+  function drawRulerShape(x0, y0, x1, y1, lying, seed) {
+    const dx = x1 - x0, dy = y1 - y0, l = Math.hypot(dx, dy) || 1;
+    const nx = -dy / l * RULER_HW, ny = dx / l * RULER_HW;
+    ctx.fillStyle = 'rgba(0,0,0,0.12)';
+    if (lying) { ctx.beginPath(); ctx.moveTo(x0 + nx + 4, y0 + ny + 6); ctx.lineTo(x1 + nx + 4, y1 + ny + 6); ctx.lineTo(x1 - nx + 4, y1 - ny + 6); ctx.lineTo(x0 - nx + 4, y0 - ny + 6); ctx.fill(); }
+    else { ctx.beginPath(); ctx.ellipse(x0 + 8, y0 + 2, 22, 6, 0, 0, Math.PI * 2); ctx.fill(); }
+    ctx.beginPath(); ctx.moveTo(x0 + nx, y0 + ny); ctx.lineTo(x1 + nx, y1 + ny); ctx.lineTo(x1 - nx, y1 - ny); ctx.lineTo(x0 - nx, y0 - ny); ctx.closePath();
+    ctx.fillStyle = '#f2d27a'; ctx.fill();
+    ctx.strokeStyle = INK; ctx.lineWidth = 2.5; ctx.lineJoin = 'round'; ctx.stroke();
+    // cm çizgileri
+    ctx.strokeStyle = 'rgba(31,29,27,0.7)'; ctx.lineWidth = 1.3;
+    const ux = dx / l, uy = dy / l, sx = -uy, sy = ux, steps = Math.floor(l / 10);
+    for (let k = 1; k < steps; k++) {
+      const px = x0 + ux * k * 10 - sx * RULER_HW, py = y0 + uy * k * 10 - sy * RULER_HW, m = k % 5 ? 5 : 10;
+      ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(px + sx * m, py + sy * m); ctx.stroke();
+    }
+  }
+
+  function drawRulers(boil, front) {
+    const fy = S.py + FOOT_DY;
+    for (const rl of S.rulers) {
+      const up = rl.state !== 'down';
+      if (up && front !== (rl.y > fy)) continue;
+      if (!up && front) continue;
+      if (rl.state === 'down') { const t = rulerTip(rl); drawRulerShape(rl.x, rl.y, t.x, t.y, true, rl.x); continue; }
+      // dik ya da devriliyor: 3B ucun ekrana izdüşümü
+      const ease = rl.state === 'fall' ? rl.f * rl.f : 0;
+      const phi = ease * Math.PI / 2 + (rl.state === 'wobble' ? Math.sin(rl.t * 40) * 0.06 : 0);
+      const dir = rl.state === 'up' ? -Math.PI / 2 : rl.dir;
+      const hor = Math.sin(phi) * RULER_L, ver = Math.cos(phi) * RULER_L * RULER_UP;
+      const tx = rl.x + Math.cos(dir) * hor, ty = rl.y + Math.sin(dir) * hor - ver;
+      if (rl.state === 'wobble' || rl.state === 'fall') {
+        // düşeceği yeri göster
+        const t = rulerTip(rl);
+        ctx.save(); ctx.strokeStyle = 'rgba(212,58,47,0.55)'; ctx.lineWidth = RULER_HW * 2; ctx.lineCap = 'round'; ctx.globalAlpha = 0.35;
+        ctx.beginPath(); ctx.moveTo(rl.x, rl.y); ctx.lineTo(t.x, t.y); ctx.stroke(); ctx.restore();
+      }
+      drawRulerShape(rl.x, rl.y, tx, ty, false, rl.x);
+    }
+  }
+
+  function drawCompass(boil) {
+    const C = S.compass;
+    if (!C) return;
+    ctx.save();
+    if (C.state === 'draw' || C.state === 'on') {
+      const end = C.state === 'draw' ? C.ang : Math.PI * 2;
+      const fade = C.state === 'on' && C.t > COMPASS_ON - 1.5 && Math.floor(clock * 8) % 2 === 0 ? 0.4 : 1;
+      ctx.globalAlpha = fade;
+      if (C.state === 'on') { ctx.fillStyle = 'rgba(15,127,143,0.08)'; ctx.beginPath(); ctx.arc(C.x, C.y, COMPASS_R, 0, Math.PI * 2); ctx.fill(); }
+      ctx.strokeStyle = '#4a4a52'; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(C.x, C.y, COMPASS_R + noise(boil) * 0.6, -Math.PI / 2, -Math.PI / 2 + end); ctx.stroke();
+      ctx.globalAlpha = 1;
+      // pergelin kalem bacağı çemberi çizerek döner
+      const a = -Math.PI / 2 + (C.state === 'draw' ? C.ang : C.ang);
+      const px = C.x + Math.cos(a) * COMPASS_R, py = C.y + Math.sin(a) * COMPASS_R;
+      const hx = C.x + Math.cos(a) * COMPASS_R * 0.5, hy = C.y + Math.sin(a) * COMPASS_R * 0.5 - 60;
+      ctx.strokeStyle = INK; ctx.lineWidth = 5; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(C.x, C.y); ctx.lineTo(hx, hy); ctx.lineTo(px, py); ctx.stroke();
+      ctx.fillStyle = '#c0392b'; ctx.beginPath(); ctx.arc(hx, hy, 6, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#e8c35a'; ctx.beginPath(); ctx.arc(px, py, 4, 0, Math.PI * 2); ctx.fill();
+      if (C.state === 'on') {
+        ctx.font = `18px ${UI_FONT}`; ctx.textAlign = 'center'; ctx.fillStyle = '#0f7f8f';
+        ctx.fillText(`her sn 5 sıfıra · ${Math.ceil(COMPASS_ON - C.t)}`, C.x, C.y + COMPASS_R + 18);
+      }
+    } else {
+      // bekleyen pergel: bölge halkası + dolum yayı
+      const ready = C.state === 'idle';
+      ctx.globalAlpha = ready ? 1 : 0.4;
+      ctx.strokeStyle = 'rgba(15,127,143,0.55)'; ctx.lineWidth = 2; ctx.setLineDash([6, 6]);
+      ctx.beginPath(); ctx.arc(C.x, C.y, COMPASS_ZONE, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+      if (ready && C.prog > 0) {
+        ctx.strokeStyle = '#0f7f8f'; ctx.lineWidth = 6;
+        ctx.beginPath(); ctx.arc(C.x, C.y, COMPASS_ZONE, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * (C.prog / COMPASS_NEED)); ctx.stroke();
+        ctx.font = `20px ${NUM_FONT}`; ctx.textAlign = 'center'; ctx.fillStyle = '#0f7f8f';
+        ctx.fillText(`${Math.ceil(COMPASS_NEED - C.prog)}`, C.x, C.y - COMPASS_ZONE - 12);
+      }
+      // ayakta duran pergel
+      ctx.strokeStyle = INK; ctx.lineWidth = 4; ctx.lineCap = 'round';
+      const sw = Math.sin(clock * 2) * 2;
+      ctx.beginPath(); ctx.moveTo(C.x - 16, C.y + 8); ctx.lineTo(C.x + sw, C.y - 44); ctx.lineTo(C.x + 16, C.y + 8); ctx.stroke();
+      ctx.fillStyle = '#c0392b'; ctx.beginPath(); ctx.arc(C.x + sw, C.y - 46, 6, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#e8c35a'; ctx.fillRect(C.x + 13, C.y + 2, 6, 9);
+      if (!ready) { ctx.font = `16px ${UI_FONT}`; ctx.textAlign = 'center'; ctx.fillStyle = INK; ctx.fillText(`${Math.ceil(COMPASS_COOL - C.t)} sn`, C.x, C.y + 30); }
+    }
+    ctx.restore();
+  }
+
+  function drawItems() {
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    for (const it of S.items) {
+      const R = RARITY[it.def.r];
+      if (it.life - it.t < 3 && Math.floor(clock * 8) % 2 === 0) continue;
+      const bob = Math.sin(clock * 4 + it.x) * 4;
+      ctx.save(); ctx.translate(it.x, it.y + bob); ctx.rotate(Math.sin(clock * 2 + it.y) * 0.12);
+      ctx.fillStyle = R.color; ctx.globalAlpha = 0.25;
+      ctx.beginPath(); ctx.arc(0, 0, 26 + Math.sin(clock * 6) * 3, 0, Math.PI * 2); ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = '#fbf8f1'; ctx.strokeStyle = R.color; ctx.lineWidth = 3;
+      ctx.fillRect(-17, -20, 34, 40); ctx.strokeRect(-17, -20, 34, 40);
+      ctx.font = `22px ${NUM_FONT}`; ctx.fillStyle = R.color;
+      ctx.fillText(it.def.icon, 0, 1);
+      ctx.restore();
+    }
+  }
+
+  function drawCombo() {
+    const C = S.combo;
+    if (C.n < COMBO_SHOW || C.n >= COMBO_GOAL) return;
+    const txt = `${COMBO_GOAL - C.n} ${C.par ? 'tek' : 'çift'} kaldı`;
+    ctx.save();
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round';
+    ctx.font = `22px ${NUM_FONT}`; ctx.lineWidth = 5; ctx.strokeStyle = PAPER;
+    const y = S.py - 104 + Math.sin(clock * 5) * 2;
+    ctx.strokeText(txt, S.px, y);
+    ctx.fillStyle = C.par ? '#c0392b' : '#2f6fd1'; ctx.fillText(txt, S.px, y);
+    ctx.restore();
   }
 
   function rrect(x, y, w, h, r) {
@@ -1139,15 +1705,6 @@
       ctx.beginPath(); ctx.moveTo(e.x, e.y); ctx.lineTo(e.x + Math.cos(e.dashDir) * 260, e.y + Math.sin(e.dashDir) * 260); ctx.stroke();
       ctx.restore();
     }
-    if (e.markT > 0) {
-      ctx.save(); ctx.translate(e.x + w * 0.45, e.y - h * 0.6);
-      ctx.fillStyle = PAPER; ctx.strokeStyle = MARK; ctx.lineWidth = 3;
-      ctx.beginPath(); ctx.arc(0, 0, 18, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-      ctx.beginPath(); ctx.arc(0, 0, 22, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * (e.markT / MARK_TIME)); ctx.stroke();
-      ctx.font = `17px ${NUM_FONT}`; ctx.fillStyle = MARK; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.fillText('×' + e.markMul, 0, 1);
-      ctx.restore();
-    }
   }
 
   function drawBullets() {
@@ -1228,13 +1785,17 @@
       ctx.lineWidth = 5; ctx.strokeStyle = PAPER;
       ctx.font = `30px ${NUM_FONT}`;
       ctx.strokeText(s.label, 0, 0);
-      ctx.fillStyle = s.op === 3 ? MARK : RED;
+      ctx.fillStyle = RED;
       ctx.fillText(s.label, 0, 0);
       ctx.restore();
     }
   }
 
   function drawPlayer(boil) {
+    if (S.buffs.shield > 0) {
+      ctx.strokeStyle = `rgba(47,111,209,${S.buffs.shield < 2 && Math.floor(clock * 8) % 2 ? 0.2 : 0.6})`; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.ellipse(S.px, S.py - 14, 44, 74, 0, 0, Math.PI * 2); ctx.stroke();
+    }
     // dokunulmazlık süresinde yanıp söner
     if (S.iframes > 0 && Math.floor(clock * 14) % 2 === 0) ctx.globalAlpha = 0.45;
     drawStick(S.px, S.py, S.aim, S.recoil, S.hurt, boil, S.walk, Math.hypot(S.pvx, S.pvy) > 20);
@@ -1382,6 +1943,11 @@
     drawBar(24, 60, 190, 18, hpFrac, hpFrac < 0.3 ? '#e0453a' : '#e86b5c');
     ctx.font = `17px ${UI_FONT}`; ctx.fillStyle = INK; ctx.textAlign = 'center';
     ctx.fillText(`${Math.ceil(S.hp)} / ${S.maxHp}`, 24 + 95, 75);
+    // etkin eşya güçleri
+    const bf = [];
+    if (S.buffs.rapid > 0) bf.push(`» hızlı ${Math.ceil(S.buffs.rapid)}`);
+    if (S.buffs.shield > 0) bf.push(`▢ kalkan ${Math.ceil(S.buffs.shield)}`);
+    if (bf.length) { ctx.textAlign = 'center'; ctx.font = `16px ${UI_FONT}`; ctx.fillStyle = '#2f6fd1'; ctx.fillText(bf.join('   '), W / 2, 92); }
     // bölüm + dalga
     ctx.textAlign = 'right';
     drawText(`Bölüm ${S.stage}`, W - 24, 46, 30, S.stage >= 17 ? RED : INK, UI_FONT, boil + 9);
@@ -1399,7 +1965,7 @@
 
   function drawCards(boil) {
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < NW; i++) {
       const wpn = WEAPONS[i], selected = S.sel === i, empty = wpn.limited && S.ammo[i] <= 0;
       const x = CARD_X0 + i * (CARD_W + CARD_GAP) + CARD_W / 2 + Math.sin(S.cardShake[i] * 30) * 6 * S.cardShake[i];
       const y = CARD_Y + CARD_H / 2 + (selected ? -10 : 0);
@@ -1428,7 +1994,7 @@
       ctx.textAlign = 'right'; ctx.fillStyle = '#7a4bd8';
       ctx.fillText(`Sv ${S.wlv[i]}`, CARD_W / 2 - 7, -CARD_H / 2 + 14);
       ctx.textAlign = 'center';
-      const col = empty ? '#999' : (selected ? (i === 3 ? MARK : RED) : INK);
+      const col = empty ? '#999' : (selected ? RED : INK);
       drawText(wLabel(i, S.wlv[i]), 0, -6, 38, col, NUM_FONT, i * 11 + (selected ? boil : 0));
       ctx.font = `19px ${UI_FONT}`; ctx.fillStyle = INK;
       if (!wpn.limited) ctx.fillText('∞', 0, CARD_H / 2 - 20);
@@ -1438,7 +2004,7 @@
         const k = S.ammo[i] < S.ammoCap ? S.ammoT[i] / AMMO_REGEN : 1;
         ctx.globalAlpha = 1;
         ctx.fillStyle = 'rgba(31,29,27,0.12)'; ctx.fillRect(-36, CARD_H / 2 - 12, 72, 5);
-        ctx.fillStyle = i === 3 ? MARK : '#0f7f8f'; ctx.fillRect(-36, CARD_H / 2 - 12, 72 * k, 5);
+        ctx.fillStyle = '#0f7f8f'; ctx.fillRect(-36, CARD_H / 2 - 12, 72 * k, 5);
       }
       ctx.restore();
     }
@@ -1492,10 +2058,13 @@
     const sx = canvas.width / W, sy = canvas.height / H;
     const ox = S.shake > 0 ? rand(-1, 1) * S.shake : 0, oy = S.shake > 0 ? rand(-1, 1) * S.shake : 0;
     ctx.setTransform(sx, 0, 0, sy, ox * sx, oy * sy);
+    const inGame = S.mode !== 'menu' && S.mode !== 'stages';
+    if (inGame) { drawCompass(boil); drawRulers(boil, false); }
     drawAim();
+    drawItems();
     drawOrbs();
     drawEnemies(boil);
-    if (S.mode !== 'menu' && S.mode !== 'stages') drawPlayer(boil);
+    if (inGame) { drawPlayer(boil); drawRulers(boil, true); drawCombo(); }
     drawShots();
     drawBullets();
     drawParts();
@@ -1836,14 +2405,14 @@
   }
   function cardAt(x, y) {
     if (y < CARD_Y - 14 || y > CARD_Y + CARD_H + 6) return -1;
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < NW; i++) {
       const cx = CARD_X0 + i * (CARD_W + CARD_GAP);
       if (x >= cx - CARD_GAP / 2 && x <= cx + CARD_W + CARD_GAP / 2) return i;
     }
     return -1;
   }
   function select(i) {
-    if (i < 0 || i >= 4 || S.sel === i) return;
+    if (i < 0 || i >= NW || S.sel === i) return;
     S.sel = i;
     Snd.select();
   }
@@ -1893,7 +2462,7 @@
   canvas.addEventListener('wheel', e => {
     if (S.mode !== 'play') return;
     e.preventDefault();
-    select((S.sel + (e.deltaY > 0 ? 1 : 3)) % 4);
+    select((S.sel + (e.deltaY > 0 ? 1 : NW - 1)) % NW);
   }, { passive: false });
 
   const MOVE_KEYS = {
@@ -1916,13 +2485,13 @@
       return;
     }
     if (S.mode === 'levelup') {
-      if (e.key >= '1' && e.key <= '4') chooseUpgrade(+e.key - 1);
+      if (e.key >= '1' && e.key <= '3') chooseUpgrade(+e.key - 1);
       return;
     }
     if (S.mode === 'play') {
-      if (e.key >= '1' && e.key <= '4') select(+e.key - 1);
-      else if (e.code === 'KeyQ') select((S.sel + 3) % 4);
-      else if (e.code === 'KeyE') select((S.sel + 1) % 4);
+      if (e.key >= '1' && e.key <= '3') select(+e.key - 1);
+      else if (e.code === 'KeyQ') select((S.sel + NW - 1) % NW);
+      else if (e.code === 'KeyE') select((S.sel + 1) % NW);
       else if (e.code === 'Space') { S.keyFire = true; e.preventDefault(); }
       else if (e.key === 'Escape' || e.code === 'KeyP') pauseGame();
     } else if (S.mode === 'pause' && (e.key === 'Escape' || e.code === 'KeyP')) resumeGame();
@@ -1956,7 +2525,7 @@
   // ---------- başlat ----------
   if (/[?&]debug\b/.test(location.search)) {
     window.__sm = {
-      get S() { return S; }, get save() { return save; }, render, update, updateFx, spawnEnemy, spawnBoss, startGame, startStage, showStages, fire, gainXP, chooseUpgrade, openQuiz, quizKey, resolveQuiz, makeQuestion, stageCfg, bossHp, BOSS_TYPES, bossFor, wPow, xpNeed,
+      get S() { return S; }, get save() { return save; }, render, update, updateFx, spawnEnemy, spawnSpec, spawnBoss, dropItem, nudge, startGame, startStage, showStages, fire, gainXP, chooseUpgrade, openQuiz, quizKey, resolveQuiz, makeQuestion, stageCfg, bossHp, BOSS_TYPES, bossFor, wPow, xpNeed,
       seekIntro(t) { if (S.mode !== 'intro') startIntro(); introT = t; }, INTRO_LEN,
     };
   }

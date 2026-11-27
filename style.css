@@ -76,7 +76,7 @@ a.home:hover { color: #d43a2f; border-color: #d43a2f; }
 #levelup { background: rgba(243, 239, 230, .9); }
 .choices {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr;
   gap: calc(var(--s) * 14px);
   width: 100%;
 }
